@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keep the supplied artwork inside Android's adaptive-icon safe zone. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="21dp">
+    <bitmap
+        android:src="@drawable/ic_launcher_foreground_artwork"
+        android:gravity="fill" />
+</inset>

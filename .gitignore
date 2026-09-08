@@ -1,0 +1,24 @@
+.gradle/
+.kotlin/
+.idea/
+local.properties
+**/build/
+**/.cxx/
+*.iml
+captures/
+.DS_Store
+
+# Node
+node_modules
+node_modules/
+
+# Xcode
+**/xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# WorkBuddy
+.workbuddy/
+
+# 实际业务数据，不入库
+outputs/
