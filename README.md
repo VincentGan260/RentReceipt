@@ -49,11 +49,41 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew assembleRelease   # 产物：app/build/outputs/apk/release/app-release.apk
 ```
 
-> 当前 `release` 构建类型暂用 **debug 密钥**签名（`app/build.gradle.kts` 中的 `signingConfig = signingConfigs.getByName("debug")`），保证产物拿去就能装。
-> 若要正式发布，请生成自己的 keystore，并在 `build.gradle.kts` 里换成正式 `signingConfigs`。
-> 注意：签名密钥一旦更换，已安装的用户需要先卸载才能升级，**升级前务必先导出 ZIP 备份**。
+#### 发布签名（正式发布必读）
 
-`local.properties` 含本机路径，已在 `.gitignore` 中，不会被提交。
+`release` 构建从项目根目录的 `keystore.properties` 读取签名配置：
+
+```properties
+storeFile=/绝对路径/rentreceipt.jks
+storePassword=密钥库密码
+keyAlias=rentreceipt
+keyPassword=密钥密码
+```
+
+**没有这个文件也能构建** —— Gradle 会回退到 debug 签名并在日志里告警。但 debug 签名的包**不能覆盖升级**：一旦换成别的密钥，已安装用户必须先卸载重装，卸载会丢数据。
+
+生成自己的密钥（有效期 30 年）：
+
+```bash
+keytool -genkeypair -v -keystore rentreceipt.jks -keyalg RSA -keysize 2048 \
+  -validity 10950 -alias rentreceipt \
+  -dname "CN=你的名字, OU=部门, O=组织, C=CN"
+```
+
+验证签名是否生效：
+
+```bash
+apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+# 应看到你自己的 CN，而不是 CN=Android Debug
+```
+
+发布版本已启用 **v3 签名方案的密钥轮换（key rotation）**，将来即使需要更换密钥，已安装用户也能平滑升级。
+
+> ⚠️ **keystore 与密码一旦丢失，你将永远无法为这个 App 发布更新** —— 没有任何办法证明新包出自同一开发者，用户只能卸载重装（数据全丢）。请务必多处备份（密码管理器 + 离线介质）。
+>
+> `keystore.properties` 含明文密码，`*.jks` 是密钥本体，两者**都已在 `.gitignore` 中**，切勿提交。
+
+`local.properties` 与 `keystore.properties` 都含本机路径或密码，均不会入库。
 
 ### iOS
 

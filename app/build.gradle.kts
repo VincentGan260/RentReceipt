@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -29,6 +31,31 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // 读取项目根目录的 keystore.properties（含密码，已在 .gitignore 中）。
+    // 该文件不存在时（例如他人 clone 后构建）回退到 debug 签名，保证仓库开箱可编译。
+    val keystorePropsFile = rootProject.file("keystore.properties")
+    val keystoreProps: Properties? = if (keystorePropsFile.exists()) {
+        Properties().apply { keystorePropsFile.inputStream().use { load(it) } }
+    } else {
+        null
+    }
+
+    signingConfigs {
+        if (keystoreProps != null) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+                // v2 保证兼容性（minSdk 31 仍建议保留），
+                // v3 支持密钥轮换（key rotation）：万一将来需要更换签名密钥，
+                // 已安装用户仍可平滑升级，不必卸载重装。
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -37,10 +64,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 尚未配置正式签名密钥，暂用 debug 密钥签名，
-            // 保证 GitHub Release 上的 APK 拿去就能装。
-            // 有了自己的 keystore 后，把这里换成 signingConfigs.getByName("release") 即可。
-            signingConfig = signingConfigs.getByName("debug")
+            if (keystoreProps != null) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+                logger.warn(
+                    "未找到 keystore.properties，release 包将用 debug 密钥签名。" +
+                        "正式发布前请配置自己的 keystore，否则用户无法覆盖安装升级。"
+                )
+            }
         }
     }
 
