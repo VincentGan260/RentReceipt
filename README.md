@@ -43,6 +43,16 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew test
 ```
 
+发布包（开启 R8 裁剪 + 资源压缩，体积从 70 MB 降到约 4 MB）：
+
+```bash
+./gradlew assembleRelease   # 产物：app/build/outputs/apk/release/app-release.apk
+```
+
+> 当前 `release` 构建类型暂用 **debug 密钥**签名（`app/build.gradle.kts` 中的 `signingConfig = signingConfigs.getByName("debug")`），保证产物拿去就能装。
+> 若要正式发布，请生成自己的 keystore，并在 `build.gradle.kts` 里换成正式 `signingConfigs`。
+> 注意：签名密钥一旦更换，已安装的用户需要先卸载才能升级，**升级前务必先导出 ZIP 备份**。
+
 `local.properties` 含本机路径，已在 `.gitignore` 中，不会被提交。
 
 ### iOS

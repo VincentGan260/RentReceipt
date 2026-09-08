@@ -29,6 +29,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // 尚未配置正式签名密钥，暂用 debug 密钥签名，
+            // 保证 GitHub Release 上的 APK 拿去就能装。
+            // 有了自己的 keystore 后，把这里换成 signingConfigs.getByName("release") 即可。
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
