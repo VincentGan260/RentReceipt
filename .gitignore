@@ -27,6 +27,3 @@ outputs/
 keystore.properties
 *.jks
 *.keystore
-
-# iOS 安装包体积过大，不入库
-*.ipa
