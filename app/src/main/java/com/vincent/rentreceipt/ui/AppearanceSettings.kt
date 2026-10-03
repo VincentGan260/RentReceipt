@@ -39,16 +39,18 @@ import top.yukonga.miuix.kmp.theme.ThemePaletteStyle
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import kotlin.math.roundToInt
 
-enum class UiStyle(val label: String) {
-    AUTO("自动"),
-    MIUIX("MIUIX"),
-    MATERIAL("MD3")
-}
-
 enum class AppColorMode(val label: String) {
     SYSTEM("跟随系统"),
     LIGHT("浅色"),
     DARK("深色")
+}
+
+enum class BottomBarStyle(val label: String) {
+    LIQUID_GLASS("液态玻璃·官方示例"),
+    FIXED_ICON_AND_TEXT("固定·图标和文字"),
+    FIXED_ICON_ONLY("固定·仅图标"),
+    FIXED_SELECTED_LABEL("固定·仅选中项文字"),
+    FLOATING("悬浮·仅图标")
 }
 
 val ThemeKeyColors = listOf(
@@ -63,9 +65,12 @@ class AppearanceSettingsState internal constructor(context: Context) {
         "appearance_settings",
         Context.MODE_PRIVATE
     )
+    private val defaultBottomBarStyle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        BottomBarStyle.LIQUID_GLASS
+    } else {
+        BottomBarStyle.FIXED_ICON_AND_TEXT
+    }
 
-    var uiStyle by mutableStateOf(enumPreference("ui_style", UiStyle.AUTO))
-        private set
     var colorMode by mutableStateOf(enumPreference("color_mode", AppColorMode.SYSTEM))
         private set
     var monet by mutableStateOf(preferences.getBoolean("dynamic_color", false))
@@ -84,11 +89,9 @@ class AppearanceSettingsState internal constructor(context: Context) {
         }
     )
         private set
-    var globalBlur by mutableStateOf(preferences.getBoolean("global_blur", true))
-        private set
-    var floatingBottomBar by mutableStateOf(preferences.getBoolean("floating_bottom_bar", true))
-        private set
-    var glassEffect by mutableStateOf(preferences.getBoolean("glass_effect", true))
+    var bottomBarStyle by mutableStateOf(
+        enumPreference("bottom_bar_style", defaultBottomBarStyle)
+    )
         private set
     var predictiveBack by mutableStateOf(preferences.getBoolean("predictive_back", false))
         private set
@@ -102,15 +105,13 @@ class AppearanceSettingsState internal constructor(context: Context) {
             ?.let { runCatching { enumValueOf<T>(it) }.getOrNull() }
             ?: fallback
 
-    fun updateUiStyle(value: UiStyle) = save("ui_style", value.name) { uiStyle = value }
     fun updateColorMode(value: AppColorMode) = save("color_mode", value.name) { colorMode = value }
     fun updateMonet(value: Boolean) = save("dynamic_color", value) { monet = value }
     fun updateKeyColor(value: Int) = save("key_color", value) { keyColor = value }
     fun updatePaletteStyle(value: String) = save("palette_style", value) { paletteStyle = value }
     fun updateColorSpec(value: String) = save("color_spec", value) { colorSpec = value }
-    fun updateGlobalBlur(value: Boolean) = save("global_blur", value) { globalBlur = value }
-    fun updateFloatingBottomBar(value: Boolean) = save("floating_bottom_bar", value) { floatingBottomBar = value }
-    fun updateGlassEffect(value: Boolean) = save("glass_effect", value) { glassEffect = value }
+    fun updateBottomBarStyle(value: BottomBarStyle) =
+        save("bottom_bar_style", value.name) { bottomBarStyle = value }
     fun updatePredictiveBack(value: Boolean) = save("predictive_back", value) { predictiveBack = value }
     fun updatePageScale(value: Float) = save("page_scale", value.coerceIn(1f, 1.2f)) {
         pageScale = value.coerceIn(1f, 1.2f)
@@ -130,15 +131,12 @@ class AppearanceSettingsState internal constructor(context: Context) {
     }
 
     fun reset() {
-        updateUiStyle(UiStyle.AUTO)
         updateColorMode(AppColorMode.SYSTEM)
         updateMonet(false)
         updateKeyColor(0)
         updatePaletteStyle(ThemePaletteStyle.TonalSpot.name)
         updateColorSpec(ThemeColorSpec.Spec2021.name)
-        updateGlobalBlur(true)
-        updateFloatingBottomBar(true)
-        updateGlassEffect(true)
+        updateBottomBarStyle(defaultBottomBarStyle)
         updatePredictiveBack(false)
         updatePageScale(1f)
         updateAnimations(true)
@@ -156,9 +154,7 @@ fun AppearanceSettingsScreen(
     state: AppearanceSettingsState,
     onBack: () -> Unit
 ) {
-    val supportsMiuix = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val supportsMonet = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val supportsBlur = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
     val supportsPredictiveBack = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
 
     ExpressivePage("界面设置", navigation = { BackButton(onBack) }) {
@@ -173,26 +169,8 @@ fun AppearanceSettingsScreen(
                     else -> "Monet 自定义主题色"
                 }
                 Text(
-                    "当前：${if (LocalUseMiuix.current) "MIUIX" else "Material 3"} · $palette",
+                    "当前：MIUIX · $palette",
                     style = KitTypography.headlineMedium
-                )
-            }
-        }
-
-        item {
-            SectionTitle("界面风格")
-            ExpressiveCard {
-                Text(
-                    if (supportsMiuix) "自动模式会在 Android 12 及以上使用 MIUIX。"
-                    else "Android 10/11 保持 Material 3。",
-                    color = KitColors.onSurfaceVariant
-                )
-                ChoiceButtons(
-                    values = UiStyle.entries,
-                    selected = state.uiStyle,
-                    label = UiStyle::label,
-                    enabled = { it != UiStyle.MIUIX || supportsMiuix },
-                    onSelect = state::updateUiStyle
                 )
             }
         }
@@ -243,33 +221,15 @@ fun AppearanceSettingsScreen(
         }
 
         item {
-            SectionTitle("效果与底栏")
-            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                if (supportsBlur) {
-                    SettingsToggle(
-                        title = "全局模糊",
-                        summary = "允许界面栏和玻璃材质采样背景",
-                        checked = state.globalBlur,
-                        enabled = LocalUseMiuix.current,
-                        onCheckedChange = state::updateGlobalBlur
-                    )
-                }
-                SettingsToggle(
-                    title = "悬浮底栏",
-                    summary = "关闭后使用 UI Kit 的固定底部导航栏",
-                    checked = state.floatingBottomBar,
-                    enabled = LocalUseMiuix.current,
-                    onCheckedChange = state::updateFloatingBottomBar
+            SectionTitle("底部导航栏")
+            ExpressiveCard {
+                Text("使用 MIUIX 0.9.4 官方组件与仓库中的液态玻璃示例。")
+                ChoiceButtons(
+                    values = BottomBarStyle.entries,
+                    selected = state.bottomBarStyle,
+                    label = BottomBarStyle::label,
+                    onSelect = state::updateBottomBarStyle
                 )
-                AnimatedVisibility(state.floatingBottomBar && supportsBlur) {
-                    SettingsToggle(
-                        title = "悬浮底栏玻璃",
-                        summary = "透明度、高光、折射感和悬浮阴影",
-                        checked = state.glassEffect,
-                        enabled = LocalUseMiuix.current && state.globalBlur,
-                        onCheckedChange = state::updateGlassEffect
-                    )
-                }
             }
         }
 
@@ -308,7 +268,7 @@ fun AppearanceSettingsScreen(
             OutlinedButton(onClick = state::reset, modifier = Modifier.fillMaxWidth()) {
                 Icon(KitIcons.Restore, null)
                 androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
-                Text("恢复 UI Kit 默认设置")
+                Text("恢复 MIUIX 默认设置")
             }
         }
     }

@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
@@ -111,19 +112,18 @@ import top.yukonga.miuix.kmp.basic.TextFieldDefaults as XiaomiTextFieldDefaults
 import top.yukonga.miuix.kmp.basic.Text as XiaomiText
 import top.yukonga.miuix.kmp.window.WindowDialog as XiaomiWindowDialog
 import top.yukonga.miuix.kmp.preference.SwitchPreference as XiaomiSwitchPreference
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurDefaults
+import top.yukonga.miuix.kmp.blur.ProgressiveBlur
 import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
-import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 val LocalPageScrollStateChange = staticCompositionLocalOf<(Boolean) -> Unit> { {} }
 val LocalUseMiuix = staticCompositionLocalOf { false }
-val LocalGlobalBlurEnabled = staticCompositionLocalOf { true }
-val LocalFloatingBottomBarEnabled = staticCompositionLocalOf { true }
-val LocalGlassEffectEnabled = staticCompositionLocalOf { true }
+val LocalBottomBarStyle = staticCompositionLocalOf { BottomBarStyle.LIQUID_GLASS }
 val LocalAnimationsEnabled = staticCompositionLocalOf { true }
 
 /** Semantic tokens shared by the intentional MIUIX and Material 3 presentation modes. */
@@ -673,15 +673,24 @@ fun KitAlertDialog(
     dismissButton: @Composable () -> Unit = {}
 ) {
     if (LocalUseMiuix.current) {
-        XiaomiWindowDialog(show = true, title = title, onDismissRequest = onDismissRequest) {
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        XiaomiWindowDialog(
+            show = true,
+            title = title,
+            onDismissRequest = onDismissRequest,
+            maxWidth = 560.dp,
+            largeScreen = configuration.screenWidthDp >= 600 ||
+                configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        ) {
             Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
                 text()
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.weight(1f)) { dismissButton() }
-                    Box(Modifier.weight(1f)) { confirmButton() }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { dismissButton() }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { confirmButton() }
                 }
             }
         }
@@ -705,8 +714,7 @@ fun RentTheme(settings: AppearanceSettingsState, content: @Composable () -> Unit
         AppColorMode.LIGHT -> false
         AppColorMode.DARK -> true
     }
-    val supportsMiuix = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val useMiuix = supportsMiuix && settings.uiStyle != UiStyle.MATERIAL
+    val useMiuix = true
     val paletteStyle = runCatching { PaletteStyle.valueOf(settings.paletteStyle) }
         .getOrDefault(PaletteStyle.TonalSpot)
     val colorSpec = runCatching { ColorSpec.SpecVersion.valueOf(settings.colorSpec) }
@@ -839,12 +847,7 @@ fun RentTheme(settings: AppearanceSettingsState, content: @Composable () -> Unit
     }
     androidx.compose.runtime.CompositionLocalProvider(
         LocalUseMiuix provides useMiuix,
-        LocalGlobalBlurEnabled provides settings.globalBlur,
-        LocalFloatingBottomBarEnabled provides settings.floatingBottomBar,
-        LocalGlassEffectEnabled provides (
-            settings.glassEffect && settings.globalBlur &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-            ),
+        LocalBottomBarStyle provides settings.bottomBarStyle,
         LocalAnimationsEnabled provides settings.animations
     ) {
         MaterialTheme(colorScheme = colors, shapes = shapes, typography = typography) {
@@ -865,7 +868,7 @@ fun ExpressivePage(
 ) {
     val onScrollStateChange = LocalPageScrollStateChange.current
     val useMiuix = LocalUseMiuix.current
-    val floatingBottomBar = LocalFloatingBottomBarEnabled.current
+    val floatingBottomBar = LocalBottomBarStyle.current == BottomBarStyle.FLOATING
     LaunchedEffect(listState, onScrollStateChange) {
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
@@ -873,36 +876,41 @@ fun ExpressivePage(
     }
     if (useMiuix) {
         val scrollBehavior = MiuixScrollBehavior()
-        val blurActive = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            LocalGlobalBlurEnabled.current && isRuntimeShaderSupported()
         val surfaceColor = XiaomiTheme.colorScheme.surface
-        val backdrop = if (blurActive) {
+        val topBackdrop = if (isRuntimeShaderSupported()) {
             rememberLayerBackdrop {
                 drawRect(surfaceColor)
                 drawContent()
             }
         } else null
+        val topBlurColors = BlurDefaults.blurColors(
+            blendColors = listOf(BlendColorEntry(surfaceColor.copy(alpha = 0.3f)))
+        )
         Box(Modifier.fillMaxSize()) {
             XiaomiScaffold(
                 topBar = {
-                    Box(
-                        modifier = if (backdrop != null) {
-                            Modifier.textureBlur(
-                                backdrop = backdrop,
-                                shape = RectangleShape,
-                                blurRadius = 25f,
-                                colors = BlurDefaults.blurColors(
-                                    blendColors = listOf(
-                                        BlendColorEntry(surfaceColor.copy(alpha = 0.8f))
+                    Box {
+                        if (topBackdrop != null) {
+                            Box(
+                                Modifier
+                                    .matchParentSize()
+                                    .graphicsLayer {
+                                        alpha = (-scrollBehavior.state.contentOffset /
+                                            48.dp.toPx()).coerceIn(0f, 1f)
+                                    }
+                                    .progressiveTextureBlur(
+                                        backdrop = topBackdrop,
+                                        shape = RectangleShape,
+                                        gradient = ProgressiveBlur.Top.copy(curve = 2.2f),
+                                        blurRadius = 10f,
+                                        colors = topBlurColors
                                     )
-                                )
                             )
-                        } else Modifier
-                    ) {
+                        }
                         XiaomiTopAppBar(
                             title = title,
                             largeTitle = title,
-                            color = if (backdrop != null) Color.Transparent else surfaceColor,
+                            color = if (topBackdrop != null) Color.Transparent else surfaceColor,
                             navigationIcon = navigation,
                             actions = actions,
                             scrollBehavior = scrollBehavior
@@ -910,7 +918,11 @@ fun ExpressivePage(
                     }
                 }
             ) { innerPadding ->
-                Box(modifier = if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
+                Box(
+                    Modifier.then(
+                        if (topBackdrop != null) Modifier.layerBackdrop(topBackdrop) else Modifier
+                    )
+                ) {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -921,7 +933,7 @@ fun ExpressivePage(
                             start = 16.dp,
                             top = innerPadding.calculateTopPadding() + 8.dp,
                             end = 16.dp,
-                            bottom = if (floatingBottomBar) 112.dp else 84.dp
+                            bottom = if (floatingBottomBar || LocalBottomBarStyle.current == BottomBarStyle.LIQUID_GLASS) 112.dp else 84.dp
                         ),
                         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
                         content = content

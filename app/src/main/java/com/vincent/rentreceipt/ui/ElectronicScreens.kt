@@ -64,6 +64,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import com.vincent.rentreceipt.R
 import com.vincent.rentreceipt.data.BackupArchive
 import com.vincent.rentreceipt.export.ArchivePdfExporter
@@ -89,9 +91,6 @@ import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.YearMonth
 import java.util.UUID
-import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
-import top.yukonga.miuix.kmp.blur.layerBackdrop
-import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.DropdownEntry
 import top.yukonga.miuix.kmp.basic.DropdownItem
@@ -132,28 +131,34 @@ fun ElectronicHome(
     onRoomHistory: (String) -> Unit,
     onPreview: (String) -> Unit,
     onRestore: (AppData) -> Unit,
-    onSaveBuilding: (Building) -> Unit
+    onSaveBuilding: (Building) -> Unit,
+    onDeleteBuilding: (String) -> Unit
 ) {
+    if (data.buildings.isEmpty()) {
+        EmptyBuildingsScreen(onSaveBuilding, onSelectBuilding)
+        return
+    }
     var chromeVisible by remember { mutableStateOf(true) }
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    val fixedMiuixBottomBar = LocalUseMiuix.current && !LocalFloatingBottomBarEnabled.current
+    val bottomBarStyle = LocalBottomBarStyle.current
+    val fixedMiuixBottomBar = bottomBarStyle != BottomBarStyle.FLOATING &&
+        bottomBarStyle != BottomBarStyle.LIQUID_GLASS
+    val liquidSurfaceColor = MiuixTheme.colorScheme.surface
+    val liquidBackdrop = rememberLayerBackdrop {
+        drawRect(liquidSurfaceColor)
+        drawContent()
+    }
     val animationsEnabled = LocalAnimationsEnabled.current
-    val bottomBlurActive = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
-        LocalUseMiuix.current && LocalGlobalBlurEnabled.current &&
-        LocalGlassEffectEnabled.current && isRuntimeShaderSupported()
-    val miuixSurface = if (LocalUseMiuix.current) MiuixTheme.colorScheme.surface else KitColors.surface
-    val bottomBackdrop = if (bottomBlurActive) {
-        rememberLayerBackdrop {
-            drawRect(miuixSurface)
-            drawContent()
-        }
-    } else null
     Box(Modifier.fillMaxSize()) {
         Box(
-            Modifier.fillMaxSize().then(
-                if (bottomBackdrop != null) Modifier.layerBackdrop(bottomBackdrop) else Modifier
-            )
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (bottomBarStyle == BottomBarStyle.LIQUID_GLASS) {
+                        Modifier.layerBackdrop(liquidBackdrop)
+                    } else Modifier
+                )
         ) {
             CompositionLocalProvider(
                 LocalPageScrollStateChange provides { scrolling -> chromeVisible = !scrolling }
@@ -190,7 +195,7 @@ fun ElectronicHome(
                     )
                     MainTab.ROOMS -> RoomManagementScreen(
                         data, selectedBuildingId, onSelectBuilding, onEditSettings,
-                        onEditAppearance, onEditRoom, onRestore, onSaveBuilding
+                        onEditAppearance, onEditRoom, onRestore, onSaveBuilding, onDeleteBuilding
                     )
                 }
                 }
@@ -203,7 +208,11 @@ fun ElectronicHome(
             exit = fadeOut() + slideOutVertically { it / 2 }
         ) {
             if (LocalUseMiuix.current) {
-                MiuixGlassBottomBar(selectedTab = selectedTab, onTab = onTab, backdrop = bottomBackdrop)
+                MiuixBottomBar(
+                    selectedTab = selectedTab,
+                    onTab = onTab,
+                    backdrop = if (bottomBarStyle == BottomBarStyle.LIQUID_GLASS) liquidBackdrop else null
+                )
             } else Surface(
                 modifier = Modifier
                     .navigationBarsPadding()
@@ -928,7 +937,8 @@ private fun RoomManagementScreen(
     onEditAppearance: () -> Unit,
     onEditRoom: (String?) -> Unit,
     onRestore: (AppData) -> Unit,
-    onSaveBuilding: (Building) -> Unit
+    onSaveBuilding: (Building) -> Unit,
+    onDeleteBuilding: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -937,6 +947,7 @@ private fun RoomManagementScreen(
     var buildingEditor by remember { mutableStateOf<Building?>(null) }
     var addingBuilding by remember { mutableStateOf(false) }
     var buildingName by remember { mutableStateOf("") }
+    var pendingDeleteBuilding by remember { mutableStateOf<Building?>(null) }
     val building = data.buildings.firstOrNull { it.id == selectedBuildingId } ?: data.buildings.first()
     val rooms = data.rooms
         .filter { it.buildingId == building.id }
@@ -1007,6 +1018,15 @@ private fun RoomManagementScreen(
                         Spacer(Modifier.width(6.dp))
                         Text("新增楼栋", maxLines = 1)
                     }
+                }
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = { pendingDeleteBuilding = building },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(KitIcons.Delete, null, tint = KitColors.error)
+                    Spacer(Modifier.width(6.dp))
+                    Text("删除楼栋", color = KitColors.error)
                 }
             })
         }
@@ -1179,6 +1199,43 @@ private fun RoomManagementScreen(
         }
     )
 
+    pendingDeleteBuilding?.let { target ->
+        val roomCount = data.rooms.count { it.buildingId == target.id }
+        val billCount = data.bills.count { it.buildingId == target.id }
+        KitAlertDialog(
+            onDismissRequest = { pendingDeleteBuilding = null },
+            title = "删除“${target.name}”？",
+            text = {
+                Text(
+                    "将永久删除该楼栋、$roomCount 个房间、$billCount 张历史账单及相关未提交草稿。" +
+                        "此操作不可撤销。"
+                )
+            },
+            confirmButton = {
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        onDeleteBuilding(target.id)
+                        data.buildings.firstOrNull { it.id != target.id }?.let { onSelectBuilding(it.id) }
+                        pendingDeleteBuilding = null
+                    }
+                ) {
+                    Icon(KitIcons.Delete, null, tint = KitColors.error)
+                    Spacer(Modifier.width(6.dp))
+                    Text("确认删除", color = KitColors.error)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { pendingDeleteBuilding = null },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
     pendingRestore?.let { restored ->
         KitAlertDialog(
             onDismissRequest = { pendingRestore = null },
@@ -1204,6 +1261,61 @@ private fun RoomManagementScreen(
             }
         )
     }
+}
+
+@Composable
+private fun EmptyBuildingsScreen(
+    onSaveBuilding: (Building) -> Unit,
+    onSelectBuilding: (String) -> Unit
+) {
+    var addingBuilding by remember { mutableStateOf(false) }
+    var buildingName by remember { mutableStateOf("") }
+    ExpressivePage("房租管理") {
+        item {
+            ExpressiveCard {
+                Text("还没有楼栋", style = KitTypography.headlineMedium)
+                Text("新增楼栋后即可管理房间和录入账单。")
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { addingBuilding = true }
+                ) {
+                    Icon(painterResource(R.drawable.ic_symbol_add_rounded), null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("新增楼栋")
+                }
+            }
+        }
+    }
+    if (addingBuilding) KitAlertDialog(
+        onDismissRequest = { addingBuilding = false },
+        title = "新增楼栋",
+        text = {
+            KitTextField(
+                value = buildingName,
+                onValueChange = { buildingName = it },
+                label = "楼栋名称",
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            Button(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = buildingName.isNotBlank(),
+                onClick = {
+                    val building = Building(UUID.randomUUID().toString(), buildingName.trim())
+                    onSaveBuilding(building)
+                    onSelectBuilding(building.id)
+                    addingBuilding = false
+                }
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            OutlinedButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { addingBuilding = false }
+            ) { Text("取消") }
+        }
+    )
 }
 
 @Composable

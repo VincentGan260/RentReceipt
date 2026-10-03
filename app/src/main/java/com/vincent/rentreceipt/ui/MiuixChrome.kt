@@ -1,88 +1,85 @@
 package com.vincent.rentreceipt.ui
 
-import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.MeetingRoom
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import component.liquid.IosLiquidGlassNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
-import top.yukonga.miuix.kmp.basic.FloatingToolbarDefaults
 import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
-import top.yukonga.miuix.kmp.blur.BlendColorEntry
-import top.yukonga.miuix.kmp.blur.BlurDefaults
+import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
-import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-fun MiuixGlassBottomBar(
+fun MiuixBottomBar(
     selectedTab: MainTab,
     onTab: (MainTab) -> Unit,
-    modifier: Modifier = Modifier,
-    backdrop: LayerBackdrop? = null
+    backdrop: LayerBackdrop? = null,
+    modifier: Modifier = Modifier
 ) {
-    val glassActive = backdrop != null && LocalGlassEffectEnabled.current
-    val surface = MiuixTheme.colorScheme.surfaceContainer
-    val blendColors = BlurDefaults.blurColors(
-        blendColors = listOf(BlendColorEntry(surface.copy(alpha = 0.72f)))
+    val style = LocalBottomBarStyle.current
+    val itemColors = NavigationBarDefaults.navigationBarItemColors(
+        selectedContentColor = MiuixTheme.colorScheme.primary,
+        unselectedContentColor = MiuixTheme.colorScheme.onSurfaceContainer
     )
-    if (LocalFloatingBottomBarEnabled.current) {
-        val barModifier = if (glassActive) {
-            modifier.textureBlur(
-                backdrop = backdrop,
-                shape = RoundedCornerShape(FloatingToolbarDefaults.CornerRadius),
-                blurRadius = 28f,
-                colors = blendColors
-            )
-        } else modifier
-        FloatingNavigationBar(
-            modifier = barModifier,
-            color = if (glassActive) Color.Transparent else surface
-        ) {
+
+    if (style == BottomBarStyle.LIQUID_GLASS) {
+        val tabs = MainTab.entries
+        IosLiquidGlassNavigationBar(
+            items = tabs.map { NavigationItem(it.label(), it.miuixIcon()) },
+            selectedIndex = tabs.indexOf(selectedTab),
+            onItemClick = { index -> onTab(tabs[index]) },
+            backdrop = backdrop,
+            isBlurActive = backdrop != null,
+            modifier = modifier
+        )
+        return
+    }
+
+    if (style == BottomBarStyle.FLOATING) {
+        FloatingNavigationBar(modifier = modifier) {
             MainTab.entries.forEach { tab ->
                 FloatingNavigationBarItem(
                     selected = selectedTab == tab,
                     onClick = { onTab(tab) },
                     icon = tab.miuixIcon(),
-                    label = tab.label()
+                    label = tab.label(),
+                    colors = itemColors
                 )
             }
         }
-    } else {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .then(
-                    if (glassActive) Modifier.textureBlur(
-                        backdrop = backdrop,
-                        shape = RectangleShape,
-                        blurRadius = 25f,
-                        colors = blendColors
-                    ) else Modifier
-                )
+        return
+    }
+
+    val displayMode = when (style) {
+        BottomBarStyle.FIXED_ICON_AND_TEXT -> NavigationBarDisplayMode.IconAndText
+        BottomBarStyle.FIXED_ICON_ONLY -> NavigationBarDisplayMode.IconOnly
+        BottomBarStyle.FIXED_SELECTED_LABEL -> NavigationBarDisplayMode.IconWithSelectedLabel
+        BottomBarStyle.FLOATING -> error("Handled above")
+        BottomBarStyle.LIQUID_GLASS -> error("Handled above")
+    }
+    Box(modifier = modifier.fillMaxWidth()) {
+        NavigationBar(
+            modifier = Modifier.fillMaxWidth(),
+            mode = displayMode
         ) {
-            NavigationBar(
-                modifier = Modifier.fillMaxWidth(),
-                color = if (glassActive) Color.Transparent else surface,
-                mode = NavigationBarDisplayMode.IconAndText
-            ) {
-                MainTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = selectedTab == tab,
-                        onClick = { onTab(tab) },
-                        icon = tab.miuixIcon(),
-                        label = tab.label()
-                    )
-                }
+            MainTab.entries.forEach { tab ->
+                NavigationBarItem(
+                    selected = selectedTab == tab,
+                    onClick = { onTab(tab) },
+                    icon = tab.miuixIcon(),
+                    label = tab.label(),
+                    colors = itemColors
+                )
             }
         }
     }

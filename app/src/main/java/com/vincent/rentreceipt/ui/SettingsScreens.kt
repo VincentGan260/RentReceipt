@@ -251,8 +251,8 @@ fun BillPreviewScreen(
     val scope = rememberCoroutineScope()
     var exported by remember { mutableStateOf<Uri?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
-    val preview = remember(bill, template) {
-        ReceiptExporter.createPreviewBitmap(context, bill, template)
+    val preview = remember(bill, buildingName, template) {
+        ReceiptExporter.createPreviewBitmap(context, bill, buildingName, template)
     }
     DisposableEffect(preview) {
         onDispose { preview.recycle() }

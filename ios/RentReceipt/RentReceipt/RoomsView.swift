@@ -8,6 +8,7 @@ struct RoomsView: View {
     @State private var showingSettings = false
     @State private var editingBuilding: Building?
     @State private var addingBuilding = false
+    @State private var pendingDeleteBuilding: Building?
     @State private var exportDocument: ExportDocument?
     @State private var exportType: UTType = .data
     @State private var exportFilename = "导出文件"
@@ -34,6 +35,9 @@ struct RoomsView: View {
                                 Spacer()
                                 Button("改名") { editingBuilding = store.selectedBuilding }
                                 Button("新增楼栋") { addingBuilding = true }
+                                Button("删除楼栋", role: .destructive) {
+                                    pendingDeleteBuilding = store.selectedBuilding
+                                }
                             }
                         }
                     }
@@ -142,6 +146,22 @@ struct RoomsView: View {
         } message: {
             if let value = pendingRestore {
                 Text("将恢复 \(value.buildings.count) 栋楼、\(value.rooms.count) 个房间和 \(value.bills.count) 张历史账单。")
+            }
+        }
+        .alert("删除“\(pendingDeleteBuilding?.name ?? "")”？", isPresented: Binding(
+            get: { pendingDeleteBuilding != nil },
+            set: { if !$0 { pendingDeleteBuilding = nil } }
+        )) {
+            Button("取消", role: .cancel) { pendingDeleteBuilding = nil }
+            Button("确认删除", role: .destructive) {
+                if let building = pendingDeleteBuilding { store.deleteBuilding(id: building.id) }
+                pendingDeleteBuilding = nil
+            }
+        } message: {
+            if let building = pendingDeleteBuilding {
+                let roomCount = store.data.rooms.count { $0.buildingId == building.id }
+                let billCount = store.data.bills.count { $0.buildingId == building.id }
+                Text("将永久删除该楼栋、\(roomCount) 个房间、\(billCount) 张历史账单及相关未提交草稿。此操作不可撤销。")
             }
         }
     }

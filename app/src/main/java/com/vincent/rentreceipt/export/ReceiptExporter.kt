@@ -35,7 +35,7 @@ object ReceiptExporter {
     private const val DETAIL_LABEL_SIZE = 66f
     private const val DETAIL_VALUE_SIZE = 136f
     fun export(context: Context, bill: Bill, buildingName: String, template: ReceiptTemplate): Uri {
-        val bitmap = createBitmap(context, bill, template)
+        val bitmap = createBitmap(context, bill, buildingName, template)
         val filename = "${bill.month}-${buildingName}-${bill.roomNumber}房-房租单.png"
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, filename)
@@ -79,12 +79,22 @@ object ReceiptExporter {
 
     fun heightFor(bill: Bill): Int = HEIGHT + (bill.customCharges.size * CUSTOM_ROW_HEIGHT).toInt()
 
-    private fun createBitmap(context: Context, bill: Bill, template: ReceiptTemplate): Bitmap =
+    private fun createBitmap(
+        context: Context,
+        bill: Bill,
+        buildingName: String,
+        template: ReceiptTemplate
+    ): Bitmap =
         Bitmap.createBitmap(WIDTH, heightFor(bill), Bitmap.Config.ARGB_8888).also {
-            drawReceipt(Canvas(it), bill, template, timesNewRoman(context))
+            drawReceipt(Canvas(it), bill, buildingName, template, timesNewRoman(context))
         }
 
-    fun createPreviewBitmap(context: Context, bill: Bill, template: ReceiptTemplate): Bitmap {
+    fun createPreviewBitmap(
+        context: Context,
+        bill: Bill,
+        buildingName: String,
+        template: ReceiptTemplate
+    ): Bitmap {
         val scale = 0.4f
         return Bitmap.createBitmap(
             (WIDTH * scale).toInt(),
@@ -93,7 +103,7 @@ object ReceiptExporter {
         ).also {
             val canvas = Canvas(it)
             canvas.scale(scale, scale)
-            drawReceipt(canvas, bill, template, timesNewRoman(context))
+            drawReceipt(canvas, bill, buildingName, template, timesNewRoman(context))
         }
     }
 
@@ -112,6 +122,7 @@ object ReceiptExporter {
     private fun drawReceipt(
         canvas: Canvas,
         bill: Bill,
+        buildingName: String,
         template: ReceiptTemplate,
         timesNewRoman: Typeface
     ) {
@@ -148,6 +159,11 @@ object ReceiptExporter {
                 drawStyledDate(canvas, bill, element, body, timesNewRoman)
                 return@forEach
             }
+            if (element.id == "room") {
+                drawRoomLine(canvas, bill.roomNumber, buildingName, element, body, timesNewRoman)
+                return@forEach
+            }
+            if (element.id == "roomSuffix") return@forEach
             val paint = when (element.color) {
                 "blue" -> blue
                 "red" -> red
@@ -159,14 +175,55 @@ object ReceiptExporter {
                 element.color == "blue" || element.color == "red" -> timesNewRoman
                 else -> Typeface.create("serif", Typeface.BOLD)
             }
-            fittedText(canvas, resolveReceiptText(element, bill), element, paint, customOffset)
+            fittedText(canvas, resolveReceiptText(element, bill, buildingName), element, paint, customOffset)
         }
     }
 
-    fun resolveReceiptText(element: ReceiptTextElement, bill: Bill): String {
+    private fun drawRoomLine(
+        canvas: Canvas,
+        roomNumber: String,
+        buildingName: String,
+        element: ReceiptTextElement,
+        bodyPaint: Paint,
+        numberTypeface: Typeface
+    ) {
+        val numberPaint = Paint(bodyPaint).apply {
+            color = BLUE
+            typeface = numberTypeface
+            textSize = element.fontSize
+        }
+        val buildingPaint = Paint(bodyPaint).apply {
+            color = BLUE
+            typeface = Typeface.create("serif", Typeface.BOLD)
+            textSize = 92f
+        }
+        val suffixPaint = Paint(bodyPaint).apply {
+            color = INK
+            typeface = Typeface.create("serif", Typeface.BOLD)
+            textSize = 66f
+        }
+        val parts = listOf(
+            roomNumber to numberPaint,
+            "号" to suffixPaint,
+            "（$buildingName）" to buildingPaint
+        )
+        val maxWidth = 1500f
+        val measured = parts.sumOf { (value, paint) -> paint.measureText(value).toDouble() }.toFloat()
+        if (measured > maxWidth) {
+            val scale = maxWidth / measured
+            parts.forEach { (_, paint) -> paint.textSize *= scale }
+        }
+        var x = element.x
+        parts.forEach { (value, paint) ->
+            canvas.drawText(value, x, element.y, paint)
+            x += paint.measureText(value)
+        }
+    }
+
+    fun resolveReceiptText(element: ReceiptTextElement, bill: Bill, buildingName: String): String {
         val date = receiptDate(bill)
         val replacements = mapOf(
-            "{room}" to bill.roomNumber,
+            "{room}" to "${bill.roomNumber}号（$buildingName）",
             "{receiptNo}" to bill.month.replace("-", "") + bill.roomNumber,
             "{date}" to "${date.year} 年 ${date.monthValue} 月 ${date.dayOfMonth} 日",
             "{currentWater}" to bill.currentWater,
@@ -245,7 +302,7 @@ object ReceiptExporter {
         val bounds = receiptCellBounds(element.id, customOffset)
         val maxWidth = bounds?.let { it.width() - 40f } ?: when (element.id) {
             "title" -> 2500f
-            "room" -> 260f
+            "room" -> 1500f
             "receiptNo" -> 620f
             "date" -> 850f
             "headItem", "waterLabel", "electricLabel", "rentLabel" -> 430f

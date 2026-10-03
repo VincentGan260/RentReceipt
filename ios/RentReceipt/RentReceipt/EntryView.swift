@@ -110,6 +110,7 @@ struct EntryView: View {
 
     private func exportReceipts() {
         let bills = store.bills(month: readingMonth.next.id)
+        let buildingName = store.selectedBuilding.name
         guard !bills.isEmpty else {
             message = "本月还没有可导出的账单"
             return
@@ -118,7 +119,7 @@ struct EntryView: View {
         Task {
             do {
                 exportItems = try await Task.detached(priority: .userInitiated) {
-                    try bills.map { try ReceiptRenderer.writeTemporaryPNG(for: $0) }
+                    try bills.map { try ReceiptRenderer.writeTemporaryPNG(for: $0, buildingName: buildingName) }
                 }.value
                 showingShare = true
             } catch {

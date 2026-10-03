@@ -15,6 +15,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = RentRepository(application)
     val data = repository.data
     fun saveBuilding(building: Building) = repository.saveBuilding(building)
+    fun deleteBuilding(buildingId: String) = repository.deleteBuilding(buildingId)
     fun saveBuildingSettings(buildingId: String, settings: PricingSettings) =
         repository.saveBuildingSettings(buildingId, settings)
     fun saveGlobalReceiptTemplate(template: ReceiptTemplate) =

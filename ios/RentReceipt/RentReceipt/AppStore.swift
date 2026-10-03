@@ -53,6 +53,17 @@ final class AppStore: ObservableObject {
         persist()
     }
 
+    func deleteBuilding(id: String) {
+        let roomIDs = Set(data.rooms.filter { $0.buildingId == id }.map(\.id))
+        data.buildings.removeAll { $0.id == id }
+        data.rooms.removeAll { $0.buildingId == id }
+        data.bills.removeAll { $0.buildingId == id || roomIDs.contains($0.roomId) }
+        drafts = drafts.filter { !$0.key.hasPrefix("\(id)|") }
+        saveDrafts()
+        selectedBuildingID = data.buildings.first?.id ?? ""
+        persist()
+    }
+
     func upsert(_ bill: Bill) {
         if let index = data.bills.firstIndex(where: { $0.roomId == bill.roomId && $0.month == bill.month }) {
             var value = bill
@@ -118,7 +129,7 @@ final class AppStore: ObservableObject {
     }
 
     private static func load(from url: URL) -> AppData {
-        guard let bytes = try? Data(contentsOf: url), let value = try? JSONDecoder().decode(AppData.self, from: bytes), !value.buildings.isEmpty else {
+        guard let bytes = try? Data(contentsOf: url), let value = try? JSONDecoder().decode(AppData.self, from: bytes) else {
             return AppData()
         }
         return value

@@ -8,18 +8,18 @@ enum ReceiptRenderer {
     private static let detailLabelSize: CGFloat = 66
     private static let detailValueSize: CGFloat = 136
 
-    static func image(for bill: Bill, template: ReceiptTemplate = ReceiptTemplate()) -> UIImage {
+    static func image(for bill: Bill, buildingName: String, template: ReceiptTemplate = ReceiptTemplate()) -> UIImage {
         let height = baseHeight + CGFloat(bill.customCharges.count) * customRowHeight
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
         return UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format).image { renderer in
-            draw(bill, template: template, in: renderer.cgContext)
+            draw(bill, buildingName: buildingName, template: template, in: renderer.cgContext)
         }
     }
 
-    static func writeTemporaryPNG(for bill: Bill, template: ReceiptTemplate = ReceiptTemplate()) throws -> URL {
-        try writeTemporaryPNG(image(for: bill, template: template), for: bill)
+    static func writeTemporaryPNG(for bill: Bill, buildingName: String, template: ReceiptTemplate = ReceiptTemplate()) throws -> URL {
+        try writeTemporaryPNG(image(for: bill, buildingName: buildingName, template: template), for: bill)
     }
 
     static func writeTemporaryPNG(_ image: UIImage, for bill: Bill) throws -> URL {
@@ -29,7 +29,7 @@ enum ReceiptRenderer {
         return url
     }
 
-    private static func draw(_ bill: Bill, template: ReceiptTemplate, in context: CGContext) {
+    private static func draw(_ bill: Bill, buildingName: String, template: ReceiptTemplate, in context: CGContext) {
         let customOffset = CGFloat(bill.customCharges.count) * customRowHeight
         UIColor(red: 1, green: 0.988, blue: 0.957, alpha: 1).setFill()
         context.fill(CGRect(x: 0, y: 0, width: width, height: baseHeight + customOffset))
@@ -60,7 +60,12 @@ enum ReceiptRenderer {
                 drawStyledDate(bill, element: element, ink: ink, blue: blue, left: left, right: right)
                 continue
             }
-            let value = resolve(element.content, bill: bill)
+            if element.id == "room" {
+                drawRoomLine(bill.roomNumber, buildingName: buildingName, element: element, ink: ink, blue: blue)
+                continue
+            }
+            if element.id == "roomSuffix" { continue }
+            let value = resolve(element.content, bill: bill, buildingName: buildingName)
             let color = element.color == "blue" ? blue : (element.color == "red" ? red : ink)
             let bounds = cellBounds(element.id, customOffset: customOffset)
             let maxWidth = (bounds?.width ?? fallbackWidth(element.id)) - 40
@@ -82,6 +87,40 @@ enum ReceiptRenderer {
             (value as NSString).draw(at: CGPoint(x: max(left, min(x, right - measured.width)), y: y), withAttributes: attributes)
         }
         context.restoreGState()
+    }
+
+    private static func drawRoomLine(
+        _ roomNumber: String,
+        buildingName: String,
+        element: ReceiptTextElement,
+        ink: UIColor,
+        blue: UIColor
+    ) {
+        let numberSize = CGFloat(element.fontSize)
+        let result = NSMutableAttributedString()
+        result.append(NSAttributedString(
+            string: roomNumber,
+            attributes: [.font: numberFont(numberSize), .foregroundColor: blue]
+        ))
+        let suffixFont = UIFont(name: "STSongti-SC-Bold", size: 66) ?? .systemFont(ofSize: 66, weight: .bold)
+        result.append(NSAttributedString(
+            string: "号",
+            attributes: [.font: suffixFont, .foregroundColor: ink]
+        ))
+        let buildingFont = UIFont(name: "STSongti-SC-Bold", size: 92) ?? .systemFont(ofSize: 92, weight: .bold)
+        result.append(NSAttributedString(
+            string: "（\(buildingName)）",
+            attributes: [.font: buildingFont, .foregroundColor: blue]
+        ))
+        let maxWidth: CGFloat = 1500
+        if result.size().width > maxWidth {
+            let scale = maxWidth / result.size().width
+            result.enumerateAttribute(.font, in: NSRange(location: 0, length: result.length)) { value, range, _ in
+                guard let font = value as? UIFont else { return }
+                result.addAttribute(.font, value: font.withSize(font.pointSize * scale), range: range)
+            }
+        }
+        result.draw(at: CGPoint(x: CGFloat(element.x), y: CGFloat(element.y) - numberFont(numberSize).ascender))
     }
 
     private static func textAttributes(size: CGFloat, color: UIColor, id: String) -> [NSAttributedString.Key: Any] {
@@ -138,9 +177,9 @@ enum ReceiptRenderer {
         result.draw(at: CGPoint(x: x, y: CGFloat(element.y) - baselineFont.ascender))
     }
 
-    private static func resolve(_ source: String, bill: Bill) -> String {
+    private static func resolve(_ source: String, bill: Bill, buildingName: String) -> String {
         let replacements = [
-            "{room}": bill.roomNumber, "{receiptNo}": bill.month.replacingOccurrences(of: "-", with: "") + bill.roomNumber,
+            "{room}": "\(bill.roomNumber)号（\(buildingName)）", "{receiptNo}": bill.month.replacingOccurrences(of: "-", with: "") + bill.roomNumber,
             "{date}": bill.month.replacingOccurrences(of: "-", with: " 年 ") + " 月 1 日",
             "{currentWater}": bill.currentWater, "{previousWater}": bill.previousWater,
             "{waterUsage}": bill.waterUsage.isEmpty ? usage(bill.currentWater, bill.previousWater) : bill.waterUsage,
@@ -182,7 +221,7 @@ enum ReceiptRenderer {
     }
 
     private static func fallbackWidth(_ id: String) -> CGFloat {
-        switch id { case "title": 2500; case "room": 260; case "receiptNo": 620; case "date": 850; default: 1000 }
+        switch id { case "title": 2500; case "room": 1500; case "receiptNo": 620; case "date": 850; default: 1000 }
     }
     private static func isNumeric(_ id: String) -> Bool {
         ["room", "receiptNo", "waterCurrent", "waterPrevious", "waterUsage", "waterAmount", "electricCurrent", "electricPrevious", "electricUsage", "electricAmount", "rentUsage", "rentAmount", "total"].contains(id)
@@ -219,6 +258,7 @@ enum ReceiptRenderer {
 }
 
 struct ReceiptPreviewView: View {
+    @EnvironmentObject private var store: AppStore
     let bill: Bill
     @State private var image: UIImage?
     @State private var shareURL: URL?
@@ -259,8 +299,9 @@ struct ReceiptPreviewView: View {
         }
         .task(id: bill.id) {
             do {
+                let buildingName = store.data.buildings.first { $0.id == bill.buildingId }?.name ?? "楼栋"
                 let result = try await Task.detached(priority: .userInitiated) {
-                    let rendered = ReceiptRenderer.image(for: bill)
+                    let rendered = ReceiptRenderer.image(for: bill, buildingName: buildingName)
                     return (rendered, try ReceiptRenderer.writeTemporaryPNG(rendered, for: bill))
                 }.value
                 image = result.0

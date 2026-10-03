@@ -36,6 +36,26 @@ class RentRepository(context: Context) {
         saveBuilding(building.copy(settings = settings))
     }
 
+    fun deleteBuilding(buildingId: String) {
+        val roomIds = _data.value.rooms
+            .filter { it.buildingId == buildingId }
+            .mapTo(mutableSetOf(), Room::id)
+        val editor = preferences.edit()
+        preferences.all.keys
+            .filter { it.startsWith("$BILL_DRAFT_PREFIX$buildingId:") }
+            .forEach(editor::remove)
+        editor.apply()
+        update(
+            _data.value.copy(
+                buildings = _data.value.buildings.filterNot { it.id == buildingId },
+                rooms = _data.value.rooms.filterNot { it.buildingId == buildingId },
+                bills = _data.value.bills.filterNot {
+                    it.buildingId == buildingId || it.roomId in roomIds
+                }
+            )
+        )
+    }
+
     fun saveGlobalReceiptTemplate(template: ReceiptTemplate) =
         update(_data.value.copy(receiptTemplate = template))
 
@@ -252,7 +272,7 @@ private fun appDataFromJson(root: JSONObject): AppData {
     val buildingsJson = root.optJSONArray("buildings")
     val roomsJson = root.optJSONArray("rooms") ?: JSONArray()
     val billsJson = root.optJSONArray("bills") ?: JSONArray()
-    val buildings = if (buildingsJson == null || buildingsJson.length() == 0) {
+    val buildings = if (buildingsJson == null) {
         listOf(
             Building(
                 DEFAULT_BUILDING_ID,
@@ -268,7 +288,7 @@ private fun appDataFromJson(root: JSONObject): AppData {
     } else {
         List(buildingsJson.length()) { index -> buildingsJson.getJSONObject(index).toBuilding() }
     }
-    val fallbackBuildingId = buildings.first().id
+    val fallbackBuildingId = buildings.firstOrNull()?.id ?: DEFAULT_BUILDING_ID
     return AppData(
         buildings = buildings,
         rooms = List(roomsJson.length()) { index -> roomsJson.getJSONObject(index).toRoom(fallbackBuildingId) },

@@ -36,7 +36,14 @@ import com.vincent.rentreceipt.model.ReceiptTemplate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
 
-sealed interface Screen {
+import top.yukonga.miuix.kmp.nav.core.NavKey
+import top.yukonga.miuix.kmp.nav.core.NavDisplay
+import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
+import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
+import top.yukonga.miuix.kmp.nav.transition.NavTransitions
+import top.yukonga.miuix.kmp.nav.gesture.PredictiveBackHandler as MiuixBackHandler
+
+sealed interface Screen : NavKey {
     data object Home : Screen
     data object AppearanceSettings : Screen
     data class Settings(val buildingId: String) : Screen
@@ -49,12 +56,13 @@ sealed interface Screen {
 fun RentApp(vm: MainViewModel = viewModel()) {
     val appearanceSettings = rememberAppearanceSettingsState()
     val data by vm.data.collectAsStateWithLifecycle()
-    val stack = remember { mutableStateListOf<Screen>(Screen.Home) }
+    val stack = remember { mutableStateListOf<NavKey>(Screen.Home) }
     var backProgress by remember { mutableFloatStateOf(0f) }
     var navigatingBack by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(MainTab.OVERVIEW) }
-    var selectedBuildingId by remember { mutableStateOf(data.buildings.first().id) }
-    val selectedBuilding = data.buildings.firstOrNull { it.id == selectedBuildingId } ?: data.buildings.first()
+    var selectedBuildingId by remember { mutableStateOf(data.buildings.firstOrNull()?.id.orEmpty()) }
+    val selectedBuilding = data.buildings.firstOrNull { it.id == selectedBuildingId }
+        ?: data.buildings.firstOrNull()
     val systemDensity = LocalDensity.current
     val scaledDensity = remember(systemDensity, appearanceSettings.pageScale) {
         Density(
@@ -65,107 +73,152 @@ fun RentApp(vm: MainViewModel = viewModel()) {
     val predictiveBackEnabled = appearanceSettings.predictiveBack &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
 
-    fun push(screen: Screen) { navigatingBack = false; stack += screen }
-    fun pop() { if (stack.size > 1) { navigatingBack = true; stack.removeAt(stack.lastIndex) } }
-
-    BackHandler(enabled = stack.size > 1 && !predictiveBackEnabled, onBack = ::pop)
-    PredictiveBackHandler(enabled = stack.size > 1 && predictiveBackEnabled) { progress ->
-        try {
-            progress.collect { event -> backProgress = event.progress }
-            pop()
-        } catch (_: CancellationException) {
-            // Gesture cancelled: the current page animates back to its resting position.
-        } finally {
-            backProgress = 0f
+    fun push(screen: Screen) {
+        if (screen !in stack) {
+            navigatingBack = false
+            stack += screen
         }
     }
+    fun pop() { if (stack.size > 1) { navigatingBack = true; stack.removeAt(stack.lastIndex) } }
 
     CompositionLocalProvider(LocalDensity provides scaledDensity) {
-    RentTheme(appearanceSettings) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(KitColors.background)
-        ) {
-            AnimatedContent(
-                targetState = stack.last(),
-                transitionSpec = {
-                    if (appearanceSettings.animations) expressiveTransition(navigatingBack)
-                    else EnterTransition.None togetherWith ExitTransition.None
-                },
-                contentKey = { it },
+        RentTheme(appearanceSettings) {
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        val progress = if (appearanceSettings.animations) {
-                            backProgress.coerceIn(0f, 1f)
-                        } else 0f
-                        scaleX = 1f - progress * 0.06f
-                        scaleY = 1f - progress * 0.06f
-                        translationX = size.width * progress * 0.08f
-                        alpha = 1f - progress * 0.08f
-                    },
-                label = "page_transition"
-            ) { screen ->
-                when (screen) {
-                Screen.Home -> ElectronicHome(
-                    data = data,
-                    selectedBuildingId = selectedBuilding.id,
-                    onSelectBuilding = { selectedBuildingId = it },
-                    selectedTab = selectedTab,
-                    onTab = { selectedTab = it },
-                    onSaveBill = vm::saveBill,
-                    onMarkMonthPaid = vm::markMonthPaid,
-                    onSaveBills = vm::saveBills,
-                    onLoadBillDraft = vm::loadBillDraft,
-                    onSaveBillDraft = vm::saveBillDraft,
-                    onEditSettings = { push(Screen.Settings(selectedBuilding.id)) },
-                    onEditAppearance = { push(Screen.AppearanceSettings) },
-                    onEditRoom = { push(Screen.RoomEditor(selectedBuilding.id, it)) },
-                    onRoomHistory = { push(Screen.RoomHistory(it)) },
-                    onPreview = { push(Screen.Preview(it)) },
-                    onRestore = vm::replaceAll,
-                    onSaveBuilding = vm::saveBuilding
-                )
-                Screen.AppearanceSettings -> AppearanceSettingsScreen(
-                    state = appearanceSettings,
-                    onBack = ::pop
-                )
-                is Screen.Settings -> {
-                    val building = data.buildings.firstOrNull { it.id == screen.buildingId }
-                    if (building != null) SettingsScreen(building.settings, onBack = ::pop) {
-                        vm.saveBuildingSettings(building.id, it)
-                        pop()
+                    .background(KitColors.background)
+            ) {
+                val renderScreen: @Composable (Screen) -> Unit = { screen ->
+                    if (LocalUseMiuix.current) {
+                        // Consume back without gesture animation when the preference is off.
+                        // Register before page content so dialogs retain back-event priority.
+                        MiuixBackHandler(
+                            enabled = !predictiveBackEnabled && stack.size > 1 && stack.last() == screen,
+                            onProgress = { events -> events.collect {} },
+                            onCommit = ::pop,
+                            onCancel = {}
+                        )
+                    }
+                    Box(Modifier.fillMaxSize().background(KitColors.background)) {
+                        when (screen) {
+                            Screen.Home -> ElectronicHome(
+                                data = data,
+                                selectedBuildingId = selectedBuilding?.id.orEmpty(),
+                                onSelectBuilding = { selectedBuildingId = it },
+                                selectedTab = selectedTab,
+                                onTab = { selectedTab = it },
+                                onSaveBill = vm::saveBill,
+                                onMarkMonthPaid = vm::markMonthPaid,
+                                onSaveBills = vm::saveBills,
+                                onLoadBillDraft = vm::loadBillDraft,
+                                onSaveBillDraft = vm::saveBillDraft,
+                                onEditSettings = { selectedBuilding?.let { push(Screen.Settings(it.id)) } },
+                                onEditAppearance = { push(Screen.AppearanceSettings) },
+                                onEditRoom = { roomId -> selectedBuilding?.let { push(Screen.RoomEditor(it.id, roomId)) } },
+                                onRoomHistory = { push(Screen.RoomHistory(it)) },
+                                onPreview = { push(Screen.Preview(it)) },
+                                onRestore = vm::replaceAll,
+                                onSaveBuilding = vm::saveBuilding,
+                                onDeleteBuilding = vm::deleteBuilding
+                            )
+                            Screen.AppearanceSettings -> AppearanceSettingsScreen(
+                                state = appearanceSettings,
+                                onBack = ::pop
+                            )
+                            is Screen.Settings -> {
+                                val building = data.buildings.firstOrNull { it.id == screen.buildingId }
+                                if (building != null) SettingsScreen(building.settings, onBack = ::pop) {
+                                    vm.saveBuildingSettings(building.id, it)
+                                    pop()
+                                }
+                            }
+                            is Screen.RoomEditor -> {
+                                val building = data.buildings.firstOrNull { it.id == screen.buildingId }
+                                if (building != null) RoomEditorScreen(
+                                    room = data.rooms.firstOrNull { it.id == screen.roomId },
+                                    buildingId = building.id,
+                                    settings = building.settings,
+                                    onBack = ::pop,
+                                    onSave = { vm.saveRoom(it); pop() },
+                                    onDelete = { vm.deleteRoom(it); pop() }
+                                )
+                            }
+                            is Screen.RoomHistory -> RoomHistoryScreen(
+                                data = data,
+                                roomId = screen.roomId,
+                                onBack = ::pop,
+                                onPreview = { push(Screen.Preview(it)) }
+                            )
+                            is Screen.Preview -> data.bills.firstOrNull { it.id == screen.billId }?.let { bill ->
+                                val building = data.buildings.firstOrNull { it.id == bill.buildingId }
+                                BillPreviewScreen(
+                                    bill = bill,
+                                    buildingName = building?.name ?: "楼栋",
+                                    template = ReceiptTemplate(),
+                                    onBack = ::pop
+                                )
+                            }
+                        }
                     }
                 }
-                is Screen.RoomEditor -> {
-                    val building = data.buildings.firstOrNull { it.id == screen.buildingId }
-                    if (building != null) RoomEditorScreen(
-                        room = data.rooms.firstOrNull { it.id == screen.roomId },
-                        buildingId = building.id,
-                        settings = building.settings,
+                if (LocalUseMiuix.current) {
+                    NavDisplay(
+                        backStack = stack,
                         onBack = ::pop,
-                    onSave = { vm.saveRoom(it); pop() }, onDelete = { vm.deleteRoom(it); pop() })
-                }
-                is Screen.RoomHistory -> RoomHistoryScreen(
-                    data = data,
-                    roomId = screen.roomId,
-                    onBack = ::pop,
-                    onPreview = { push(Screen.Preview(it)) }
-                )
-                is Screen.Preview -> data.bills.firstOrNull { it.id == screen.billId }?.let { bill ->
-                    val building = data.buildings.firstOrNull { it.id == bill.buildingId }
-                    BillPreviewScreen(
-                        bill = bill,
-                        buildingName = building?.name ?: "楼栋",
-                        template = ReceiptTemplate(),
-                        onBack = ::pop
-                    )
-                }
+                        modifier = Modifier.fillMaxSize(),
+                        transition = if (appearanceSettings.animations) {
+                            NavTransitions.MiuixDefault
+                        } else NavTransitions.None,
+                        effects = if (appearanceSettings.animations) NavDisplayEffects(
+                            cornerClipRadius = rememberNavSystemCornerRadius(),
+                            backdropColor = KitColors.background
+                        ) else NavDisplayEffects.None
+                    ) {
+                        entry<Screen.Home> { renderScreen(it) }
+                        entry<Screen.AppearanceSettings> { renderScreen(it) }
+                        entry<Screen.Settings> { renderScreen(it) }
+                        entry<Screen.RoomEditor> { renderScreen(it) }
+                        entry<Screen.RoomHistory> { renderScreen(it) }
+                        entry<Screen.Preview> { renderScreen(it) }
+                    }
+                } else {
+                    BackHandler(enabled = stack.size > 1 && !predictiveBackEnabled, onBack = ::pop)
+                    PredictiveBackHandler(enabled = stack.size > 1 && predictiveBackEnabled) { progress ->
+                        try {
+                            progress.collect { event -> backProgress = event.progress }
+                            pop()
+                        } catch (_: CancellationException) {
+                            // Gesture cancelled: the current page animates back to its resting position.
+                        } finally {
+                            backProgress = 0f
+                        }
+                    }
+
+                    AnimatedContent(
+                        targetState = stack.last() as Screen,
+                        transitionSpec = {
+                            if (appearanceSettings.animations) expressiveTransition(navigatingBack)
+                            else EnterTransition.None togetherWith ExitTransition.None
+                        },
+                        contentKey = { it },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val progress = if (appearanceSettings.animations) {
+                                    backProgress.coerceIn(0f, 1f)
+                                } else 0f
+                                scaleX = 1f - progress * 0.06f
+                                scaleY = 1f - progress * 0.06f
+                                translationX = size.width * progress * 0.08f
+                                alpha = 1f - progress * 0.08f
+                            },
+                        label = "page_transition"
+                    ) { screen ->
+                        renderScreen(screen)
+                    }
                 }
             }
         }
-    }
     }
 }
 
