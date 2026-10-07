@@ -223,7 +223,6 @@ Android 端运行时数据保存在 `SharedPreferences`（`rent_receipt_data`）
 ## 已知限制
 
 - 房租单目前使用内置默认排版，模板编辑入口尚未开放（数据模型与备份格式已支持）
-- `ui/HomeScreen.kt` 是早期拍照录入方案的遗留页面，当前未接入
 - Android 端数据未做云同步，换机请走 ZIP 备份
 
 ---
