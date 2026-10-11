@@ -32,7 +32,7 @@ android {
     }
 
     // 读取项目根目录的 keystore.properties（含密码，已在 .gitignore 中）。
-    // 该文件不存在时（例如他人 clone 后构建）回退到 debug 签名，保证仓库开箱可编译。
+    // 调试构建不需要正式密钥；正式构建缺少配置时必须失败。
     val keystorePropsFile = rootProject.file("keystore.properties")
     val loadedKeystoreProps: Properties? = if (keystorePropsFile.exists()) {
         Properties().apply { keystorePropsFile.inputStream().use { load(it) } }
@@ -43,6 +43,20 @@ android {
         properties.getProperty("storeFile")?.let(::file)?.exists() == true
     }
 
+    // 使用任务图检查，避免缺少正式密钥时影响 Android Studio 同步及 debug 构建。
+    gradle.taskGraph.whenReady {
+        if (allTasks.any { it.project == project && it.name.contains("Release") }) {
+            check(keystoreProps != null) {
+                "正式构建需要 keystore.properties 和有效的 storeFile；禁止回退到 debug 签名。"
+            }
+            listOf("storePassword", "keyAlias", "keyPassword").forEach { name ->
+                check(!keystoreProps.getProperty(name).isNullOrBlank()) {
+                    "正式签名配置缺少 $name。"
+                }
+            }
+        }
+    }
+
     signingConfigs {
         if (keystoreProps != null) {
             create("release") {
@@ -51,8 +65,7 @@ android {
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
                 // v2 保证兼容性（minSdk 31 仍建议保留），
-                // v3 支持密钥轮换（key rotation）：万一将来需要更换签名密钥，
-                // 已安装用户仍可平滑升级，不必卸载重装。
+                // v3 支持签名历史验证；密钥轮换还需要旧密钥及轮换证明。
                 enableV2Signing = true
                 enableV3Signing = true
             }
@@ -70,11 +83,7 @@ android {
             if (keystoreProps != null) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
-                signingConfig = signingConfigs.getByName("debug")
-                logger.warn(
-                    "未找到 keystore.properties，release 包将用 debug 密钥签名。" +
-                        "正式发布前请配置自己的 keystore，否则用户无法覆盖安装升级。"
-                )
+                // 保持未签名，下面的任务检查会阻止正式构建。
             }
         }
     }

@@ -60,7 +60,7 @@ keyAlias=rentreceipt
 keyPassword=密钥密码
 ```
 
-**没有这个文件也能构建** —— Gradle 会回退到 debug 签名并在日志里告警。但 debug 签名的包**不能覆盖升级**：一旦换成别的密钥，已安装用户必须先卸载重装，卸载会丢数据。
+正式构建缺少密钥文件或必要配置时会直接失败，不会回退到 debug 签名。调试构建不需要正式密钥。
 
 生成自己的密钥（有效期 30 年）：
 
@@ -77,9 +77,9 @@ apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
 # 应看到你自己的 CN，而不是 CN=Android Debug
 ```
 
-发布版本已启用 **v3 签名方案的密钥轮换（key rotation）**，将来即使需要更换密钥，已安装用户也能平滑升级。
+发布版本启用 v3 签名，但这并不自动建立密钥轮换关系。轮换需要旧密钥及有效的轮换证明，不能用来恢复已经丢失的密钥。
 
-> ⚠️ **keystore 与密码一旦丢失，你将永远无法为这个 App 发布更新** —— 没有任何办法证明新包出自同一开发者，用户只能卸载重装（数据全丢）。请务必多处备份（密码管理器 + 离线介质）。
+> GitHub 直接分发的 APK 必须一直使用同一签名密钥，或事先建立有效轮换关系。丢失密钥且没有轮换关系时，旧版无法覆盖升级；卸载前先导出 ZIP 备份。使用 Play App Signing 的应用需按 Google Play 的密钥恢复流程处理。
 >
 > `keystore.properties` 含明文密码，`*.jks` 是密钥本体，两者**都已在 `.gitignore` 中**，切勿提交。
 
@@ -269,3 +269,19 @@ Android 端运行时数据保存在 `SharedPreferences`（`rent_receipt_data`）
 你可以自由使用、修改和分发本软件，但任何基于本项目的衍生作品**在分发时必须同样以 GPL-3.0 开源**，并保留原始版权声明。
 
 Copyright (C) 2026 VincentGan260
+
+## 签名密钥备份与换电脑
+
+1. 备份当前已发布 APK 对应的原始 `.jks` 文件，不要为换电脑重新生成密钥。
+2. 在密码管理器中保存 `storePassword`、`keyAlias` 和 `keyPassword`。
+3. 将密钥保存在两处独立位置，例如加密云盘和离线 U 盘，并确认备份可读。
+4. 换电脑后恢复密钥，在根目录重新创建 `keystore.properties`，更新 `storeFile` 路径。
+5. 从当前可信的正式 APK 获取证书指纹：
+
+```bash
+apksigner verify --print-certs 当前正式版本.apk
+```
+
+将输出中的 `certificate SHA-256 digest` 保存为仓库的 Actions Secret `SIGNING_CERT_SHA256`。仓库 Settings → Secrets and variables → Actions 中还需配置 `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS` 和 `KEY_PASSWORD`。发布流程会核对指纹，任何密钥变更都会阻止发布，需人工确认原因。
+
+GitHub Secrets 不能直接读取取回原值，不可作为唯一备份。密钥和密码不要提交到仓库，也不要发到聊天中。

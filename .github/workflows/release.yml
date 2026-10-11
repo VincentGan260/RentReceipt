@@ -1,6 +1,6 @@
 # 发布工作流：推送 v* 标签时自动构建签名 APK 并创建 GitHub Release。
 # 密钥从仓库 Secrets 注入，构建机不落盘明文密码（keystore 临时解出后仅在本次任务内有效）。
-# Secrets：KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
+# Secrets：KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD / SIGNING_CERT_SHA256
 
 name: Release
 
@@ -45,12 +45,24 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease --no-daemon
 
-      - name: Verify signature (must not be debug)
+      - name: Verify signing certificate
+        env:
+          SIGNING_CERT_SHA256: ${{ secrets.SIGNING_CERT_SHA256 }}
         run: |
           APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort | tail -1)
-          "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk
-          if "$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk | grep -q "Android Debug"; then
+          if [ -z "$SIGNING_CERT_SHA256" ]; then
+            echo "::error::请配置 SIGNING_CERT_SHA256（当前正式签名证书的 SHA-256 指纹）"
+            exit 1
+          fi
+          CERTS=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk)
+          if echo "$CERTS" | grep -q "Android Debug"; then
             echo "::error::签名异常：APK 使用了 debug 密钥"
+            exit 1
+          fi
+          ACTUAL=$(echo "$CERTS" | sed -n 's/^.*certificate SHA-256 digest: //p' | sort -u | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          EXPECTED=$(printf '%s' "$SIGNING_CERT_SHA256" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')
+          if ! [[ "$EXPECTED" =~ ^[0-9a-f]{64}$ ]] || [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::APK 签名证书与固定指纹不一致，停止发布"
             exit 1
           fi
 
