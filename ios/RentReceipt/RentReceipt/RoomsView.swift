@@ -60,7 +60,7 @@ struct RoomsView: View {
                         AdaptiveStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("默认单价").font(.headline)
-                                Text("水 ¥\(store.selectedBuilding.settings.defaultWaterRate) / 吨 · 电 ¥\(store.selectedBuilding.settings.defaultElectricityRate) / 度")
+                                Text("水 ¥\(store.selectedBuilding.settings.defaultWaterRate) / 吨 · 电 ¥\(store.selectedBuilding.settings.defaultElectricityRate) / 度" + (store.selectedBuilding.settings.defaultManagementRate.map { " · 公共服务费 \($0) 元" } ?? ""))
                                     .font(.subheadline).foregroundStyle(.secondary)
                             }
                             Spacer()

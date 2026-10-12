@@ -18,7 +18,7 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 object BackupArchive {
-    private const val VERSION = "8"
+    private const val VERSION = "10"
     private const val MAX_ENTRY_BYTES = 20 * 1024 * 1024
 
     fun export(data: AppData, output: OutputStream) {
@@ -27,13 +27,13 @@ object BackupArchive {
             zip.writeCsv("buildings.csv", buildList {
                 add(listOf(
                     "id", "name", "default_water_rate", "default_electricity_rate",
-                    "default_water_meter_max", "default_electricity_meter_max"
+                    "default_water_meter_max", "default_electricity_meter_max", "default_management_rate"
                 ))
                 data.buildings.forEach {
                     add(listOf(
                         it.id, it.name, it.settings.defaultWaterRate, it.settings.defaultElectricityRate,
                         it.settings.defaultWaterMeterMax.orEmpty(),
-                        it.settings.defaultElectricityMeterMax.orEmpty()
+                        it.settings.defaultElectricityMeterMax.orEmpty(), it.settings.defaultManagementRate.orEmpty()
                     ))
                 }
             })
@@ -54,7 +54,7 @@ object BackupArchive {
                             "id", "building_id", "number", "rent", "custom_water_rate",
                             "custom_electricity_rate", "occupied", "deposit_amount",
                             "deposit_status", "deposit_collected_date", "deposit_refunded_date",
-                            "custom_water_meter_max", "custom_electricity_meter_max"
+                            "custom_water_meter_max", "custom_electricity_meter_max", "custom_management_rate"
                         )
                     )
                     data.rooms.forEach { room ->
@@ -64,7 +64,7 @@ object BackupArchive {
                                 room.customWaterRate.orEmpty(), room.customElectricityRate.orEmpty(),
                                 room.occupied.toString(), room.depositAmount, room.depositStatus.name,
                                 room.depositCollectedDate.orEmpty(), room.depositRefundedDate.orEmpty(),
-                                room.customWaterMeterMax.orEmpty(), room.customElectricityMeterMax.orEmpty()
+                                room.customWaterMeterMax.orEmpty(), room.customElectricityMeterMax.orEmpty(), room.customManagementRate.orEmpty()
                             )
                         )
                     }
@@ -79,7 +79,7 @@ object BackupArchive {
                             "previous_water", "current_water", "water_rate", "water_amount",
                             "previous_electricity", "current_electricity", "electricity_rate",
                             "electricity_amount", "rent", "total", "paid", "paid_date",
-                            "water_usage", "electricity_usage", "rent_only"
+                            "water_usage", "electricity_usage", "rent_only", "management_rate", "management_amount"
                         )
                     )
                     data.bills.forEach { bill ->
@@ -90,12 +90,21 @@ object BackupArchive {
                                 bill.previousElectricity, bill.currentElectricity, bill.electricityRate,
                                 bill.electricityAmount, bill.rent, bill.total,
                                 bill.paid.toString(), bill.paidDate.orEmpty(),
-                                bill.waterUsage, bill.electricityUsage, bill.rentOnly.toString()
+                                bill.waterUsage, bill.electricityUsage, bill.rentOnly.toString(),
+                                bill.managementRate.orEmpty(), bill.managementAmount
                             )
                         )
                     }
                 }
             )
+            zip.writeCsv("room_charges.csv", buildList {
+                add(listOf("room_id", "item_index", "name", "amount"))
+                data.rooms.forEach { room ->
+                    room.recurringCharges.forEachIndexed { index, charge ->
+                        add(listOf(room.id, index.toString(), charge.name, charge.amount))
+                    }
+                }
+            })
             zip.writeCsv("bill_charges.csv", buildList {
                 add(listOf("bill_id", "item_index", "name", "amount"))
                 data.bills.forEach { bill ->
@@ -114,7 +123,7 @@ object BackupArchive {
                 val entry = zip.nextEntry ?: break
                 if (!entry.isDirectory && entry.name in setOf(
                         "manifest.csv", "settings.csv", "buildings.csv",
-                        "receipt_templates.csv", "rooms.csv", "bills.csv", "bill_charges.csv"
+                        "receipt_templates.csv", "rooms.csv", "bills.csv", "bill_charges.csv", "room_charges.csv"
                     )
                 ) {
                     val bytes = zip.readLimitedBytes()
@@ -127,7 +136,7 @@ object BackupArchive {
         val manifest = entries.requireTable("manifest.csv", listOf("format", "version"))
         val version = manifest.getOrNull(1)?.takeIf { it.firstOrNull() == "rent-receipt" }?.getOrNull(1)
             ?: error("备份格式不受支持")
-        require(version in setOf("1", "2", "3", "4", "5", "6", "7", VERSION)) { "备份版本不受支持" }
+        require(version in setOf("1", "2", "3", "4", "5", "6", "7", "8", "9", VERSION)) { "备份版本不受支持" }
         return when (version) {
             "1" -> importVersion1(entries)
             "2" -> importVersion2(entries, false, false, false, false, false)
@@ -135,7 +144,9 @@ object BackupArchive {
             "4", "5" -> importVersion2(entries, true, true, false, false, false)
             "6" -> importVersion2(entries, true, true, true, false, false)
             "7" -> importVersion2(entries, true, true, true, true, false)
-            else -> importVersion2(entries, true, true, true, true, true)
+            "8" -> importVersion2(entries, true, true, true, true, true)
+            "9" -> importVersion2(entries, true, true, true, true, true, true)
+            else -> importVersion2(entries, true, true, true, true, true, true, true)
         }
     }
 
@@ -205,13 +216,16 @@ object BackupArchive {
         hasRentalFields: Boolean,
         hasMeterFields: Boolean,
         hasRentOnly: Boolean,
-        hasCustomCharges: Boolean
+        hasCustomCharges: Boolean,
+        hasManagement: Boolean = false,
+        hasRoomCharges: Boolean = false
     ): AppData {
         var buildings = entries.requireTable(
             "buildings.csv",
             buildList {
                 addAll(listOf("id", "name", "default_water_rate", "default_electricity_rate"))
                 if (hasMeterFields) addAll(listOf("default_water_meter_max", "default_electricity_meter_max"))
+                if (hasManagement) add("default_management_rate")
             }
         ).drop(1).filter { it.any(String::isNotBlank) }.map { row ->
             Building(
@@ -223,7 +237,8 @@ object BackupArchive {
                     if (hasMeterFields) row.getOrNull(4)?.takeIf(String::isNotBlank)
                         ?.validatedDecimal("默认水表上限") else null,
                     if (hasMeterFields) row.getOrNull(5)?.takeIf(String::isNotBlank)
-                        ?.validatedDecimal("默认电表上限") else "10000"
+                        ?.validatedDecimal("默认电表上限") else "10000",
+                    if (hasManagement) row.getOrNull(6)?.takeIf(String::isNotBlank)?.validatedDecimal("公共服务费单价") else null
                 )
             )
         }
@@ -231,7 +246,7 @@ object BackupArchive {
         require(buildings.map { it.id }.distinct().size == buildings.size) { "备份中存在重复楼栋 ID" }
         val buildingIds = buildings.mapTo(mutableSetOf()) { it.id }
 
-        val rooms = entries.requireTable(
+        var rooms = entries.requireTable(
             "rooms.csv",
             if (hasRentalFields) buildList {
                 addAll(listOf(
@@ -240,6 +255,7 @@ object BackupArchive {
                     "deposit_status", "deposit_collected_date", "deposit_refunded_date"
                 ))
                 if (hasMeterFields) addAll(listOf("custom_water_meter_max", "custom_electricity_meter_max"))
+                if (hasRoomCharges) add("custom_management_rate")
             } else listOf("id", "building_id", "number", "rent", "custom_water_rate", "custom_electricity_rate")
         ).drop(1).filter { it.any(String::isNotBlank) }.map { row ->
             Room(
@@ -261,10 +277,28 @@ object BackupArchive {
                 customWaterMeterMax = if (hasMeterFields) row.getOrNull(11)?.takeIf(String::isNotBlank)
                     ?.validatedDecimal("房间水表上限") else null,
                 customElectricityMeterMax = if (hasMeterFields) row.getOrNull(12)?.takeIf(String::isNotBlank)
-                    ?.validatedDecimal("房间电表上限") else null
+                    ?.validatedDecimal("房间电表上限") else null,
+                customManagementRate = if (hasRoomCharges) row.getOrNull(13)?.takeIf(String::isNotBlank)?.validatedDecimal("房间公共服务费") else null
             )
         }
         require(rooms.map { it.id }.distinct().size == rooms.size) { "备份中存在重复房间 ID" }
+
+        if (hasRoomCharges) {
+            val roomIds = rooms.mapTo(mutableSetOf()) { it.id }
+            val grouped = entries.requireTable("room_charges.csv", listOf("room_id", "item_index", "name", "amount"))
+                .drop(1).filter { it.any(String::isNotBlank) }.map { row ->
+                    val roomId = row.required(0, "费用房间 ID")
+                    require(roomId in roomIds) { "固定费用引用了不存在的房间" }
+                    val index = row.required(1, "固定费用顺序").toIntOrNull() ?: error("固定费用顺序格式错误")
+                    require(index >= 0) { "固定费用顺序不能为负数" }
+                    val amount = row.required(3, "固定费用金额").validatedDecimal("固定费用金额")
+                    require(amount.toBigDecimal().signum() >= 0) { "固定费用金额不能为负数" }
+                    Triple(roomId, index, CustomCharge(row.required(2, "固定费用名称"), amount))
+                }.groupBy({ it.first }, { it.second to it.third })
+            rooms = rooms.map { room ->
+                room.copy(recurringCharges = grouped[room.id].orEmpty().sortedBy { it.first }.map { it.second })
+            }
+        }
 
         var bills = entries.requireTable(
             "bills.csv",
@@ -278,6 +312,7 @@ object BackupArchive {
                 if (hasRentalFields) addAll(listOf("paid", "paid_date"))
                 if (hasMeterFields) addAll(listOf("water_usage", "electricity_usage"))
                 if (hasRentOnly) add("rent_only")
+                if (hasManagement) addAll(listOf("management_rate", "management_amount"))
             }
         ).drop(1).filter { it.any(String::isNotBlank) }.map { row ->
             Bill(
@@ -305,7 +340,9 @@ object BackupArchive {
                 electricityUsage = if (hasMeterFields) row.getOrNull(19).orEmpty() else "",
                 rentOnly = if (hasRentOnly) {
                     row.required(20, "仅收房租标记").toBooleanStrictOrNull() ?: error("仅收房租标记格式错误")
-                } else false
+                } else false,
+                managementRate = if (hasManagement) row.getOrNull(21)?.takeIf(String::isNotBlank)?.validatedDecimal("公共服务费单价") else null,
+                managementAmount = if (hasManagement) row.required(22, "公共服务费").validatedDecimal("公共服务费") else "0"
             ).also { bill ->
                 listOf(
                     bill.previousWater, bill.currentWater, bill.waterRate, bill.waterAmount,

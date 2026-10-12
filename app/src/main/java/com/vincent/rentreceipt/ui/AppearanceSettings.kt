@@ -1,5 +1,8 @@
 package com.vincent.rentreceipt.ui
 
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
+import top.yukonga.miuix.kmp.menu.WindowDropdownMenu
 import android.content.Context
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
@@ -46,7 +49,7 @@ enum class AppColorMode(val label: String) {
 }
 
 enum class BottomBarStyle(val label: String) {
-    LIQUID_GLASS("液态玻璃·官方示例"),
+    LIQUID_GLASS("柔光玻璃·HyperModifier"),
     FIXED_ICON_AND_TEXT("固定·图标和文字"),
     FIXED_ICON_ONLY("固定·仅图标"),
     FIXED_SELECTED_LABEL("固定·仅选中项文字"),
@@ -65,11 +68,13 @@ class AppearanceSettingsState internal constructor(context: Context) {
         "appearance_settings",
         Context.MODE_PRIVATE
     )
-    private val defaultBottomBarStyle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        BottomBarStyle.LIQUID_GLASS
-    } else {
-        BottomBarStyle.FIXED_ICON_AND_TEXT
+    init {
+        if (!preferences.getBoolean("content_animation_fix_applied", false)) {
+            preferences.edit().putBoolean("animations", true)
+                .putBoolean("content_animation_fix_applied", true).apply()
+        }
     }
+    private val defaultBottomBarStyle = BottomBarStyle.LIQUID_GLASS
 
     var colorMode by mutableStateOf(enumPreference("color_mode", AppColorMode.SYSTEM))
         private set
@@ -154,188 +159,57 @@ fun AppearanceSettingsScreen(
     state: AppearanceSettingsState,
     onBack: () -> Unit
 ) {
-    val supportsMonet = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    var showLicenses by remember { mutableStateOf(false) }
+    if (showLicenses) AboutDialog(onDismiss = { showLicenses = false })
     val supportsPredictiveBack = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
 
     ExpressivePage("界面设置", navigation = { BackButton(onBack) }) {
         item {
-            SectionTitle("当前界面")
-            ExpressiveCard {
-                Text("即时预览", style = KitTypography.titleLarge)
-                Text("更改会立即应用，并自动保存。")
-                val palette = when {
-                    !state.monet -> "标准配色"
-                    state.keyColor == 0 -> "Monet 壁纸取色"
-                    else -> "Monet 自定义主题色"
-                }
-                Text(
-                    "当前：MIUIX · $palette",
-                    style = KitTypography.headlineMedium
-                )
-            }
-        }
-
-        item {
-            SectionTitle("颜色与 Monet")
+            SectionTitle("外观")
             ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    ChoiceButtons(
-                        values = AppColorMode.entries,
-                        selected = state.colorMode,
-                        label = AppColorMode::label,
-                        onSelect = state::updateColorMode
-                    )
-                }
-                SettingsToggle(
-                    title = "Monet 动态配色",
-                    summary = if (supportsMonet) "跟随壁纸或自定义主题色"
-                    else "跟随壁纸需要 Android 12 或更高版本",
-                    checked = state.monet,
-                    enabled = supportsMonet,
-                    onCheckedChange = state::updateMonet
+                WindowDropdownMenu(
+                    entry = DropdownEntry(items = AppColorMode.entries.map { mode ->
+                        DropdownItem(text = mode.label, selected = state.colorMode == mode,
+                            onClick = { state.updateColorMode(mode) })
+                    }),
+                    title = "显示模式", summary = state.colorMode.label,
+                    modifier = Modifier.fillMaxWidth()
                 )
-                AnimatedVisibility(state.monet) {
-                    Column {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text("主题色", style = KitTypography.bodyLarge)
-                            ThemeColorPicker(state.keyColor, state::updateKeyColor)
-                        }
-                        ThemeDropdown(
-                            title = "调色板风格",
-                            values = ThemePaletteStyle.entries.map { it.name },
-                            selected = state.paletteStyle,
-                            onSelect = state::updatePaletteStyle
-                        )
-                        ThemeDropdown(
-                            title = "色彩规范",
-                            values = ThemeColorSpec.entries.map { it.name },
-                            selected = state.colorSpec,
-                            onSelect = state::updateColorSpec
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            SectionTitle("底部导航栏")
-            ExpressiveCard {
-                Text("使用 MIUIX 0.9.4 官方组件与仓库中的液态玻璃示例。")
-                ChoiceButtons(
-                    values = BottomBarStyle.entries,
-                    selected = state.bottomBarStyle,
-                    label = BottomBarStyle::label,
-                    onSelect = state::updateBottomBarStyle
+                com.aritxonly.myhypermodifier.SettingsSliderItemWithLabel(
+                    label = "界面大小", value = state.pageScale, valueRange = 1f..1.2f,
+                    steps = 1, valueText = { "${(it * 100).roundToInt()}%" },
+                    onValueChange = state::updatePageScale
                 )
             }
         }
-
         item {
-            SectionTitle("导航与缩放")
+            SectionTitle("交互")
             ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                 if (supportsPredictiveBack) {
-                    SettingsToggle(
-                        title = "预测返回",
-                        summary = "返回手势时预览上一层页面",
-                        checked = state.predictiveBack,
-                        onCheckedChange = state::updatePredictiveBack
+                    com.aritxonly.myhypermodifier.SettingsSwitchItem(
+                        label = "预测返回", supportingText = "返回时预览上一页",
+                        checked = state.predictiveBack, onCheckedChange = state::updatePredictiveBack
                     )
                 }
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text("文字大小·${(state.pageScale * 100).roundToInt()}%")
-                    Text("保留系统字号并额外放大，不缩小控件触控区域。", color = KitColors.onSurfaceVariant)
-                    KitSlider(
-                        value = state.pageScale,
-                        onValueChange = state::updatePageScale,
-                        valueRange = 1f..1.2f,
-                        steps = 1,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-                SettingsToggle(
-                    title = "动画与弹性反馈",
-                    summary = "页面转场、卡片按压和底栏动画",
-                    checked = state.animations,
-                    onCheckedChange = state::updateAnimations
+                com.aritxonly.myhypermodifier.SettingsSwitchItem(
+                    label = "动画与弹性反馈", supportingText = "页面过渡与控件反馈",
+                    checked = state.animations, onCheckedChange = state::updateAnimations
+                )
+                com.aritxonly.myhypermodifier.SettingItem(
+                    headlineText = "恢复默认设置", supportingText = "恢复配色模式、界面大小及交互设置",
+                    trailingContent = { Icon(KitIcons.Restore, null, tint = KitColors.onSurfaceVariant) },
+                    onClick = state::reset
                 )
             }
         }
-
         item {
-            OutlinedButton(onClick = state::reset, modifier = Modifier.fillMaxWidth()) {
-                Icon(KitIcons.Restore, null)
-                androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
-                Text("恢复 MIUIX 默认设置")
-            }
-        }
-    }
-}
-
-@Composable
-private fun ThemeColorPicker(selected: Int, onSelect: (Int) -> Unit) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        item {
-            Box(
-                Modifier
-                    .size(42.dp)
-                    .background(KitColors.primaryContainer, CircleShape)
-                    .border(
-                        BorderStroke(if (selected == 0) 3.dp else 1.dp, KitColors.primary),
-                        CircleShape
-                    )
-                    .clickable { onSelect(0) },
-                contentAlignment = Alignment.Center
-            ) { Text("壁纸", style = KitTypography.labelSmall) }
-        }
-        items(ThemeKeyColors) { value ->
-            Box(
-                Modifier
-                    .size(42.dp)
-                    .background(Color(value), CircleShape)
-                    .border(
-                        BorderStroke(if (selected == value) 3.dp else 1.dp, KitColors.onSurface),
-                        CircleShape
-                    )
-                    .clickable { onSelect(value) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun ThemeDropdown(
-    title: String,
-    values: List<String>,
-    selected: String,
-    onSelect: (String) -> Unit
-) {
-    if (LocalUseMiuix.current) {
-        OverlayDropdownPreference(
-            title = title,
-            items = values,
-            selectedIndex = values.indexOf(selected).coerceAtLeast(0),
-            onSelectedIndexChange = { index -> values.getOrNull(index)?.let(onSelect) }
-        )
-        return
-    }
-    var expanded by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, modifier = Modifier.weight(1f))
-        Box {
-            TextButton(text = selected, onClick = { expanded = true })
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                values.forEach { value ->
-                    DropdownMenuItem(
-                        text = { Text(value) },
-                        onClick = {
-                            onSelect(value)
-                            expanded = false
-                        }
-                    )
-                }
+            SectionTitle("关于")
+            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                com.aritxonly.myhypermodifier.SettingItem(
+                    headlineText = "关于房租单生成", supportingText = "版本信息、开源技术与许可",
+                    trailingContent = { Icon(KitIcons.Forward, null, tint = KitColors.onSurfaceVariant) },
+                    onClick = { showLicenses = true }
+                )
             }
         }
     }

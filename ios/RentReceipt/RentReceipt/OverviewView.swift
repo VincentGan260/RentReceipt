@@ -158,6 +158,9 @@ struct RoomHistoryView: View {
                                     VStack(alignment: .leading) {
                                         Text(bill.month).font(.headline)
                                         Text("水 \(bill.waterUsage) · 电 \(bill.electricityUsage)").font(.caption).foregroundStyle(.secondary)
+                                        if bill.managementRate != nil {
+                                            Text("公共服务费 ¥\(bill.managementAmount)").font(.caption).foregroundStyle(.secondary)
+                                        }
                                     }
                                     Spacer()
                                     CurrencyText(value: bill.total).font(.title3.bold())

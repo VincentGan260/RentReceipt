@@ -1,0 +1,108 @@
+{
+  "repository": "https://github.com/AritxOnly/HyperModifier",
+  "revision": "84fab7c2c06b19468fea469a09223667b9f85404",
+  "license": "GPL-3.0",
+  "imported_on": "2026-10-12",
+  "files": [
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/model/AdvancedMaterialFineTuning.kt",
+      "upstream_sha256": "f3f24c84458f9511e80568efd37a012bf9545a403ac0336d74fdf38add9e948f",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/model/AdvancedMaterialLevel.kt",
+      "upstream_sha256": "8d7894b18631a0da07ff6d62d25b415a50e66b7dec255d0c25233a6cffd27bec",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/model/AdvancedMaterialTuning.kt",
+      "upstream_sha256": "612034a377c4e89e91a2d6e6db59a980c6db228cf7c71ecfd6d6324231f705bd",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/model/MiuixModalMaterialTuning.kt",
+      "upstream_sha256": "dbc9b90cbfcb364da8f5adc1d8d3b1509332cb93d63b5bd8385a72c8bcc75ae0",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/GlassMaterialModifier.kt",
+      "upstream_sha256": "b1d5c9a383df745773aec731830e90490251c8b3952c6c8c3618acf37a4e5a31",
+      "modifications": "Attribution header; Android 12 shader capability guard"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/GlassMaterialSpec.kt",
+      "upstream_sha256": "9e00b937b969182b40235f864c1c7bc2acc1d1570cb8c76cde2b76a6b343ad75",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/GlassRefractionShader.kt",
+      "upstream_sha256": "de0ac77072b3e7c4b59cbdea588cc749a693a901ce607004d734ac7ddc2c1277",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/ProgressiveTopBarMaterial.kt",
+      "upstream_sha256": "6e4267d37dd29a2d9ce96c789e9a951985a3019637ce3af26251b13cf8efe3be",
+      "modifications": "Attribution header; Android 12 shader capability guard"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/SoftGlassFloatingActionButton.kt",
+      "upstream_sha256": "6527f16c6454fedfc40bf661c5a33eb8cf2df3f7fe7c570f4fbe6c3eef26adae",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/SoftGlassPressFeedback.kt",
+      "upstream_sha256": "a9b31998b61e0f2908018c67e108672b917b88108979939148100340ef3f761a",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/SoftGlassShadow.kt",
+      "upstream_sha256": "be35e9b182b6beade570e1a62b06ac897e80ab7f5d50deaad21417ac0644394d",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/material/glass/SoftGlassSurface.kt",
+      "upstream_sha256": "4c84d0b57728625309a2ac652893764b32908fba28f2dd929e6730515ffcd8c5",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/navigation/FloatingNavigationShadow.kt",
+      "upstream_sha256": "3e4ac368b4cc7370f346582cb644dcfe5b37314f1e261d334c69624caf6226e0",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/navigation/FloatingTabMotion.kt",
+      "upstream_sha256": "4a2a6bf57a58fb4673d8fa1c496377e4622fab49d04fa4e112d2f9cdd061ebdb",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/navigation/MiuixFloatingTabBar.kt",
+      "upstream_sha256": "995195e5d7f7a72d7790b507c1e6998967fb5f76290ddaee3ed6bfd85e089510",
+      "modifications": "Attribution header; 2026-10-12 unified caption typography (12sp / 16sp)"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/deadliner/ui/theme/AdvancedMaterial.kt",
+      "upstream_sha256": "2d0a64a61578bd61dacaa71c89aa82aa054a810b0e43f60e374931932bdcad34",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/myhypermodifier/DeadlinerMiuixScaffold.kt",
+      "upstream_sha256": "5bf9af2c2dd99a247ebc69c1c9aba3390c35304bc85518b5934e059415ffb44b",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/myhypermodifier/MhmPresetColors.kt",
+      "upstream_sha256": "94ce118fc29a62bb37c2a4431e065df451f57d523d24ee2c4c98bedc07f72751",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/myhypermodifier/DeadlinerMiuixControls.kt",
+      "upstream_sha256": "a251c303aaa90b49b068b2384dbe023d0890032e75de988fc577fd7c039c3a07",
+      "modifications": "Attribution header only"
+    },
+    {
+      "file": "app/src/main/java/com/aritxonly/myhypermodifier/DeadlinerSettingsComponents.kt",
+      "upstream_sha256": "e74b4f576a18e0037b5f2de24313c0bc4a852b6dbd3167409d61c2e0113aaff6",
+      "modifications": "Attribution header; 2026-10-12 compact row and section spacing"
+    }
+  ]
+}

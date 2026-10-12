@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Source: AritxOnly/HyperModifier, revision 84fab7c2c06b19468fea469a09223667b9f85404
+// Vendored 2026-10-12 for RentReceipt; see THIRD_PARTY_NOTICES.md.
+package com.aritxonly.deadliner.ui.material.glass
+
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+
+internal data class SoftGlassShadowTokens(
+    val ambientRadius: Dp,
+    val ambientSpread: Dp,
+    val ambientAlpha: Float,
+    val outerRadius: Dp,
+    val outerSpread: Dp,
+    val outerAlpha: Float,
+    val edgeRadius: Dp,
+    val edgeSpread: Dp,
+    val edgeAlpha: Float,
+    val offset: DpOffset = DpOffset.Zero,
+)
+
+internal fun softGlassShadowTokens(
+    isDark: Boolean,
+): SoftGlassShadowTokens = if (isDark) {
+    SoftGlassShadowTokens(
+        ambientRadius = 22.dp,
+        ambientSpread = (-1).dp,
+        ambientAlpha = 0.020f,
+        outerRadius = 11.dp,
+        outerSpread = (-0.5).dp,
+        outerAlpha = 0.038f,
+        edgeRadius = 4.dp,
+        edgeSpread = (-0.5).dp,
+        edgeAlpha = 0.008f,
+    )
+} else {
+    SoftGlassShadowTokens(
+        ambientRadius = 24.dp,
+        ambientSpread = (-1).dp,
+        ambientAlpha = 0.025f,
+        outerRadius = 12.dp,
+        outerSpread = (-0.5).dp,
+        outerAlpha = 0.050f,
+        edgeRadius = 4.5.dp,
+        edgeSpread = (-0.5).dp,
+        edgeAlpha = 0.012f,
+    )
+}
+
+internal fun Modifier.softGlassShadow(
+    shape: Shape,
+    isDark: Boolean,
+    alpha: Float = 1f,
+    radiusScale: Float = 1f,
+): Modifier {
+    val tokens = softGlassShadowTokens(isDark)
+    val resolvedAlpha = alpha.coerceIn(0f, 1f)
+    val resolvedRadiusScale = radiusScale.coerceIn(0f, 1f)
+    return dropShadow(
+        shape = shape,
+        shadow = Shadow(
+            radius = tokens.ambientRadius * resolvedRadiusScale,
+            spread = tokens.ambientSpread * resolvedRadiusScale,
+            offset = tokens.offset,
+            color = Color.Black,
+            alpha = tokens.ambientAlpha * resolvedAlpha,
+        ),
+    ).dropShadow(
+        shape = shape,
+        shadow = Shadow(
+            radius = tokens.outerRadius * resolvedRadiusScale,
+            spread = tokens.outerSpread * resolvedRadiusScale,
+            offset = tokens.offset,
+            color = Color.Black,
+            alpha = tokens.outerAlpha * resolvedAlpha,
+        ),
+    ).dropShadow(
+        shape = shape,
+        shadow = Shadow(
+            radius = tokens.edgeRadius * resolvedRadiusScale,
+            spread = tokens.edgeSpread * resolvedRadiusScale,
+            offset = tokens.offset,
+            color = Color.Black,
+            alpha = tokens.edgeAlpha * resolvedAlpha,
+        ),
+    )
+}

@@ -17,8 +17,8 @@ android {
         applicationId = "com.vincent.rentreceipt"
         minSdk = 31
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     buildFeatures {
@@ -109,6 +109,7 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.4.0")
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("io.github.kyant0:shapes:1.2.0")
     implementation("com.materialkolor:material-kolor:4.1.1")
     implementation("top.yukonga.miuix.kmp:miuix-ui:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-preference:0.9.4")

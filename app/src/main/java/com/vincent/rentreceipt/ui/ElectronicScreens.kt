@@ -77,6 +77,7 @@ import com.vincent.rentreceipt.model.CustomCharge
 import com.vincent.rentreceipt.model.DepositStatus
 import com.vincent.rentreceipt.model.ReceiptTemplate
 import com.vincent.rentreceipt.model.Room
+import com.vincent.rentreceipt.model.chargesForBill
 import com.vincent.rentreceipt.model.createBill
 import com.vincent.rentreceipt.model.missingBillMonths
 import com.vincent.rentreceipt.model.roomNumberComparator
@@ -144,46 +145,23 @@ fun ElectronicHome(
     val bottomBarStyle = LocalBottomBarStyle.current
     val fixedMiuixBottomBar = bottomBarStyle != BottomBarStyle.FLOATING &&
         bottomBarStyle != BottomBarStyle.LIQUID_GLASS
-    val liquidSurfaceColor = MiuixTheme.colorScheme.surface
-    val liquidBackdrop = rememberLayerBackdrop {
-        drawRect(liquidSurfaceColor)
-        drawContent()
-    }
     val animationsEnabled = LocalAnimationsEnabled.current
     Box(Modifier.fillMaxSize()) {
         Box(
-            Modifier
-                .fillMaxSize()
-                .then(
-                    if (bottomBarStyle == BottomBarStyle.LIQUID_GLASS) {
-                        Modifier.layerBackdrop(liquidBackdrop)
-                    } else Modifier
-                )
+            Modifier.fillMaxSize()
         ) {
             CompositionLocalProvider(
-                LocalPageScrollStateChange provides { scrolling -> chromeVisible = !scrolling }
+                LocalPageScrollStateChange provides { scrolling -> chromeVisible = !scrolling },
+                LocalPageBottomBar provides {
+                    run {
+                        MiuixBottomBar(selectedTab, onTab,
+                            backdrop = com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialBackdrop.current,
+                            trailingAction = LocalPageSearchAction.current)
+                    }
+                }
             ) {
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = {
-                        if (!animationsEnabled) {
-                            EnterTransition.None togetherWith ExitTransition.None
-                        } else if (targetState.ordinal > initialState.ordinal) {
-                            (slideInHorizontally(tween(260)) { it / 7 } +
-                                fadeIn(tween(220))) togetherWith
-                                (slideOutHorizontally(tween(200)) { -it / 10 } +
-                                    fadeOut(tween(160)))
-                        } else {
-                            (slideInHorizontally(tween(260)) { -it / 7 } +
-                                fadeIn(tween(220))) togetherWith
-                                (slideOutHorizontally(tween(200)) { it / 10 } +
-                                    fadeOut(tween(160)))
-                        }
-                    },
-                    contentKey = { it },
-                    modifier = Modifier.fillMaxSize(),
-                    label = "main_tab_transition"
-                ) { tab ->
+                androidx.compose.runtime.key(selectedTab) {
+                val tab = selectedTab
                 when (tab) {
                     MainTab.OVERVIEW -> OverviewScreen(
                         data, selectedBuildingId, onSelectBuilding, onSaveBill,
@@ -201,55 +179,7 @@ fun ElectronicHome(
                 }
             }
         }
-        AnimatedVisibility(
-            visible = !imeVisible && (chromeVisible || fixedMiuixBottomBar),
-            modifier = Modifier.align(Alignment.BottomCenter),
-            enter = fadeIn() + slideInVertically { it / 2 },
-            exit = fadeOut() + slideOutVertically { it / 2 }
-        ) {
-            if (LocalUseMiuix.current) {
-                MiuixBottomBar(
-                    selectedTab = selectedTab,
-                    onTab = onTab,
-                    backdrop = if (bottomBarStyle == BottomBarStyle.LIQUID_GLASS) liquidBackdrop else null
-                )
-            } else Surface(
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    .padding(bottom = 8.dp)
-                    .fillMaxWidth(0.78f)
-                    .widthIn(max = 420.dp),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = KitColors.surfaceContainerHigh,
-                tonalElevation = 6.dp,
-                shadowElevation = 10.dp
-            ) {
-                NavigationBar(
-                    modifier = Modifier.height(72.dp),
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    windowInsets = WindowInsets(0, 0, 0, 0)
-                ) {
-                    NavigationBarItem(
-                        selected = selectedTab == MainTab.OVERVIEW,
-                        onClick = { onTab(MainTab.OVERVIEW) },
-                        icon = { Icon(painterResource(R.drawable.ic_tab_cottage_rounded), null) },
-                        label = { Text("概览") }
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == MainTab.ENTRY,
-                        onClick = { onTab(MainTab.ENTRY) },
-                        icon = { Icon(painterResource(R.drawable.ic_tab_edit_note_rounded), null) },
-                        label = { Text("录入") }
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == MainTab.ROOMS,
-                        onClick = { onTab(MainTab.ROOMS) },
-                        icon = { Icon(painterResource(R.drawable.ic_tab_meeting_room_rounded), null) },
-                        label = { Text("房间") }
-                    )
-                }
-            }
-        }
+
     }
 }
 
@@ -305,7 +235,7 @@ private fun ElectronicEntryScreen(
                         rentOnly = false,
                         waterUsageOverride = savedDraft?.waterUsageOverride.orEmpty(),
                         electricityUsageOverride = savedDraft?.electricityUsageOverride.orEmpty(),
-                        customCharges = savedDraft?.customCharges ?: existing?.customCharges.orEmpty()
+                        customCharges = room.chargesForBill(savedDraft, existing)
                     )
                 )
             }
@@ -455,6 +385,8 @@ private fun ElectronicEntryScreen(
     ExpressivePage(
         title = "数据录入",
         listState = entryListState,
+        searchQuery = query,
+        onSearchQueryChange = { query = it },
         actions = {
             if (monthBills.isNotEmpty()) {
                 KitIconButton(
@@ -470,13 +402,8 @@ private fun ElectronicEntryScreen(
             }
         }
     ) {
-        item {
-            KitSearchBar(
-                query = query,
-                onQueryChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = "搜索房间号"
-            )
+        if (query.isNotBlank()) item {
+            TextButton("搜索：$query · 清除", onClick = { query = "" })
         }
         item {
             BuildingSelector(data.buildings, building.id, onSelectBuilding)
@@ -512,7 +439,7 @@ private fun ElectronicEntryScreen(
         }
         item(key = "auto-save-status") {
             if (exporting) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     KitLinearProgressIndicator(
                         progress = exportedCount.toFloat() / monthBills.size.coerceAtLeast(1),
                         modifier = Modifier.fillMaxWidth()
@@ -523,7 +450,7 @@ private fun ElectronicEntryScreen(
                     )
                 }
             } else if (saveTokens.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     KitLinearProgressIndicator(Modifier.fillMaxWidth())
                     Text("正在自动保存…", color = KitColors.primary)
                 }
@@ -655,80 +582,8 @@ private fun ElectronicEntryScreen(
                                     updateEntry(room, entry.copy(electricityUsageOverride = it))
                                 }
                             }
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "其他收费项",
-                                    style = KitTypography.titleMedium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconTextButton(onClick = {
-                                    updateEntry(
-                                        room,
-                                        entry.copy(customCharges = entry.customCharges + CustomCharge())
-                                    )
-                                }) {
-                                    Icon(painterResource(R.drawable.ic_symbol_add_rounded), null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("添加", style = KitTypography.labelLarge)
-                                }
-                            }
-                            entry.customCharges.forEachIndexed { index, charge ->
-                                Column(
-                                    Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                        KitIconButton(onClick = {
-                                            updateEntry(
-                                                room,
-                                                entry.copy(
-                                                    customCharges = entry.customCharges.filterIndexed { itemIndex, _ ->
-                                                        itemIndex != index
-                                                    }
-                                                )
-                                            )
-                                        }) {
-                                            Icon(
-                                                KitIcons.Delete,
-                                                contentDescription = "删除收费项",
-                                                tint = KitColors.error
-                                            )
-                                        }
-                                    }
-                                    KitTextField(
-                                        value = charge.name,
-                                        onValueChange = { value ->
-                                            updateEntry(
-                                                room,
-                                                entry.copy(
-                                                    customCharges = entry.customCharges.toMutableList().apply {
-                                                        this[index] = charge.copy(name = value)
-                                                    }
-                                                )
-                                            )
-                                        },
-                                        label = "收费名称",
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    IntegerField(
-                                        "金额",
-                                        charge.amount,
-                                        Modifier.fillMaxWidth()
-                                    ) { value ->
-                                        updateEntry(
-                                            room,
-                                            entry.copy(
-                                                customCharges = entry.customCharges.toMutableList().apply {
-                                                    this[index] = charge.copy(amount = value)
-                                                }
-                                            )
-                                        )
-                                    }
-                                }
+                            ChargesEditor("其他费用", entry.customCharges) { charges ->
+                                updateEntry(room, entry.copy(customCharges = charges))
                             }
                         }
                     }
@@ -811,7 +666,7 @@ private fun MonthPickerDialog(
         onDismissRequest = onCancel,
         title = "本次录入的抄表月份？",
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("手机日期：$phoneDate")
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     KitIconButton(onClick = { onValue(value.minusMonths(1)) }) {
@@ -826,11 +681,11 @@ private fun MonthPickerDialog(
                         Icon(KitIcons.Forward, "下个月")
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onValue(YearMonth.from(phoneDate)) }) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(modifier = Modifier.weight(1f), onClick = { onValue(YearMonth.from(phoneDate)) }) {
                         Text("本月抄表")
                     }
-                    OutlinedButton(onClick = { onValue(YearMonth.from(phoneDate).minusMonths(1)) }) {
+                    OutlinedButton(modifier = Modifier.weight(1f), onClick = { onValue(YearMonth.from(phoneDate).minusMonths(1)) }) {
                         Text("上月抄表")
                     }
                 }
@@ -866,7 +721,7 @@ private fun MissingMonthDialog(
         onDismissRequest = {},
         title = "检测到中间月份没有抄表",
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("检测到 $monthText 没有单独生成房租单。")
                 Text("是否将这些月份的房租合并到本次账单？水电用量会按上次实际抄表读数与本次读数计算。")
             }
@@ -955,6 +810,8 @@ private fun RoomManagementScreen(
             val occupiedOrder = left.occupied.compareTo(right.occupied)
             if (occupiedOrder != 0) occupiedOrder else roomNumberComparator.compare(left.number, right.number)
         }
+    var roomQuery by remember(building.id) { mutableStateOf("") }
+    val visibleRooms = rooms.filter { it.number.contains(roomQuery.trim(), ignoreCase = true) }
     val buildingBills = data.bills.filter { it.buildingId == building.id }
     var pdfStartMonth by remember(building.id) { mutableStateOf(YearMonth.of(LocalDate.now().year, 1)) }
     var pdfEndMonth by remember(building.id) { mutableStateOf(YearMonth.of(LocalDate.now().year, 12)) }
@@ -986,6 +843,8 @@ private fun RoomManagementScreen(
 
     ExpressivePage(
         "房间管理",
+        searchQuery = roomQuery,
+        onSearchQueryChange = { roomQuery = it },
         actions = { KitIconButton(onClick = onEditAppearance) { Icon(KitIcons.Settings, "界面设置") } }
     ) {
         item {
@@ -1035,21 +894,23 @@ private fun RoomManagementScreen(
                 onClick = onEditSettings
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("默认单价", style = KitTypography.titleLarge)
                         Text(
-                            "水 ¥${building.settings.defaultWaterRate} / 吨 · 电 ¥${building.settings.defaultElectricityRate} / 度",
-                            color = KitColors.onSurfaceVariant
+                            "水 ¥${building.settings.defaultWaterRate} / 吨 · 电 ¥${building.settings.defaultElectricityRate} / 度" +
+                                (building.settings.defaultManagementRate?.let { " · 公共服务费 $it 元" } ?: ""),
+                            color = KitColors.onSurfaceVariant,
+                            style = KitTypography.summary
                         )
                     }
-                    Text("修改", color = KitColors.primary)
+                    Text("修改", color = KitColors.primary, style = KitTypography.labelLarge, modifier = Modifier.padding(start = 16.dp))
                 }
             }
         }
         item {
             ExpressiveCard {
                 Text("房东留档 PDF", style = KitTypography.titleLarge)
-                Text("按当前楼栋导出；每行一个房间，各月份显示水、电用量。")
+                Text("按当前楼栋导出；每行一个房间，各月份显示水、电用量。", color = KitColors.onSurfaceVariant)
                 PdfMonthLine("开始", pdfStartMonth) { pdfStartMonth = it }
                 PdfMonthLine("结束", pdfEndMonth) { pdfEndMonth = it }
                 Row(
@@ -1102,7 +963,7 @@ private fun RoomManagementScreen(
         item {
             ExpressiveCard {
                 Text("完整备份与恢复", style = KitTypography.titleLarge)
-                Text("ZIP 内包含全部楼栋、独立设置、房间和历史账单 CSV。恢复会覆盖当前所有数据。")
+                Text("备份包含楼栋、房间和账单；恢复会替换当前数据。", color = KitColors.onSurfaceVariant)
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1128,36 +989,41 @@ private fun RoomManagementScreen(
                 message?.let { Text(it, color = KitColors.primary) }
             }
         }
+
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("房间（${rooms.size}）", style = KitTypography.headlineMedium, modifier = Modifier.weight(1f))
-                IconTextButton(onClick = { onEditRoom(null) }) {
+                Button(onClick = { onEditRoom(null) }) {
                     Icon(painterResource(R.drawable.ic_symbol_add_rounded), null)
                     Spacer(Modifier.width(6.dp))
                     Text("新增", style = KitTypography.labelLarge)
                 }
             }
         }
-        rooms.forEach { room ->
+        if (roomQuery.isNotBlank()) item {
+            TextButton("搜索：$roomQuery · 清除", onClick = { roomQuery = "" })
+            if (visibleRooms.isEmpty()) Text("没有找到匹配的房间", color = KitColors.onSurfaceVariant)
+        }
+        visibleRooms.forEach { room ->
             item(key = room.id) {
                 ExpressiveCard(onClick = { onEditRoom(room.id) }) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${room.number} 房", style = KitTypography.titleLarge)
+                            Text("${if (room.occupied) "已出租" else "空置"} · 月租 ¥${room.rent}", style = KitTypography.summary, color = KitColors.onSurfaceVariant)
                             Text(
-                                "${if (room.occupied) "已出租" else "空置"}　月租 ¥${room.rent}　" +
-                                    "押金 ¥${room.depositAmount}（${when (room.depositStatus) {
-                                        DepositStatus.NOT_COLLECTED -> "未收"
-                                        DepositStatus.COLLECTED -> "已收"
-                                        DepositStatus.REFUNDED -> "已退"
-                                    }}）"
+                                "押金 ¥${room.depositAmount} · ${when (room.depositStatus) {
+                                    DepositStatus.NOT_COLLECTED -> "未收"
+                                    DepositStatus.COLLECTED -> "已收"
+                                    DepositStatus.REFUNDED -> "已退"
+                                }}",
+                                color = KitColors.onSurfaceVariant, style = KitTypography.summary
                             )
-                            Text(
-                                "水 ¥${room.customWaterRate ?: building.settings.defaultWaterRate}　电 ¥${room.customElectricityRate ?: building.settings.defaultElectricityRate}",
-                                color = KitColors.onSurfaceVariant
-                            )
+                            if (room.recurringCharges.isNotEmpty()) {
+                                Text("每月固定费用 ${room.recurringCharges.size} 项", color = KitColors.onSurfaceVariant, style = KitTypography.summary)
+                            }
                         }
-                        Icon(KitIcons.Forward, "编辑 ${room.number} 房")
+                        Icon(KitIcons.Forward, "编辑 ${room.number} 房", Modifier.padding(start = 16.dp), tint = KitColors.onSurfaceVariant)
                     }
                 }
             }

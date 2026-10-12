@@ -13,6 +13,7 @@ struct BillCalculation: Equatable {
     var waterAmount: Decimal
     var electricityAmount: Decimal
     var total: Decimal
+    var managementAmount: Decimal = 0
 }
 
 enum BillCalculator {
@@ -60,9 +61,13 @@ enum BillCalculator {
         guard rent >= 0 else { throw BillValidationError.message("房租不能为负数") }
         let waterAmount = rounded(waterUsage * waterRate)
         let electricityAmount = rounded(electricityUsage * electricityRate)
+        let managementText = (room.customManagementRate ?? settings.defaultManagementRate)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let managementRate = try managementText.flatMap { $0.isEmpty ? nil : $0 }.map { try decimal($0, "公共服务费单价") } ?? 0
+        guard managementRate >= 0 else { throw BillValidationError.message("公共服务费单价不能为负数") }
+        let managementAmount = rounded(electricityUsage * managementRate)
         return .init(waterUsage: rounded(waterUsage), electricityUsage: rounded(electricityUsage),
                      waterAmount: waterAmount, electricityAmount: electricityAmount,
-                     total: rounded(rent + waterAmount + electricityAmount + customChargeTotal))
+                     total: rounded(rent + waterAmount + electricityAmount + managementAmount + customChargeTotal), managementAmount: managementAmount)
     }
 
     static func makeBill(room: Room, settings: PricingSettings, draft: BillDraft) throws -> Bill {
@@ -77,7 +82,9 @@ enum BillCalculator {
                     electricityRate: normalized(room.customElectricityRate ?? settings.defaultElectricityRate), electricityAmount: text(value.electricityAmount),
                     rent: text(try decimal(room.rent, "房租")), total: text(value.total), rentOnly: draft.rentOnly,
                     waterUsage: text(value.waterUsage), electricityUsage: text(value.electricityUsage),
-                    customCharges: try draft.customCharges.map { CustomCharge(name: $0.name.trimmingCharacters(in: .whitespaces), amount: text(try decimal($0.amount))) })
+                    customCharges: try draft.customCharges.map { CustomCharge(name: $0.name.trimmingCharacters(in: .whitespaces), amount: text(try decimal($0.amount))) },
+                    managementRate: (room.customManagementRate ?? settings.defaultManagementRate).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : normalized($0) },
+                    managementAmount: text(value.managementAmount))
     }
 
     static func decimal(_ text: String, _ label: String = "数字") throws -> Decimal {

@@ -122,4 +122,60 @@ class BillCalculationTest {
         assertEquals("1500", bill.total)
         assertEquals("补收房租·2026年2月", bill.customCharges.single().name)
     }
+    @Test
+    fun managementFeeUsesElectricityUsageAndIsOptional() {
+        val room = Room(number = "101", rent = "500")
+        val draft = BillDraft(previousWater = "1", currentWater = "1",
+            previousElectricity = "100", currentElectricity = "234")
+        val settings = PricingSettings(defaultManagementRate = "0.25")
+        val bill = createBill(room, settings, draft)
+        assertEquals("34", bill.managementAmount)
+        assertEquals("0.25", bill.managementRate)
+        assertEquals("708", bill.total)
+        assertEquals("0", createBill(room, PricingSettings(), draft).managementAmount)
+        assertEquals("0", createBill(room, settings.copy(defaultManagementRate = ""), draft).managementAmount)
+    }
+
+    @Test
+    fun managementFeeUsesRolloverAndReplacementUsage() {
+        val room = Room(number = "101", rent = "500")
+        val settings = PricingSettings(defaultManagementRate = "0.2")
+        val draft = BillDraft(previousWater = "1", currentWater = "1",
+            previousElectricity = "9900", currentElectricity = "100")
+        assertEquals("40", createBill(room, settings, draft).managementAmount)
+        assertEquals("10", createBill(room, settings, draft.copy(electricityUsageOverride = "50")).managementAmount)
+        val moveIn = createBill(room, settings, draft.copy(rentOnly = true))
+        assertEquals("0", moveIn.managementAmount)
+        assertEquals("500", moveIn.total)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsNegativeManagementRate() {
+        calculateBill(Room(number = "101", rent = "500"),
+            PricingSettings(defaultManagementRate = "-0.2"),
+            BillDraft(previousWater = "1", currentWater = "2", previousElectricity = "1", currentElectricity = "2"))
+    }
+    @Test
+    fun roomManagementOverridesBuildingAndZeroDisablesIt() {
+        val room = Room(number = "101", rent = "500", customManagementRate = "0.6")
+        val settings = PricingSettings(defaultElectricityRate = "0.7", defaultManagementRate = "0.2")
+        val draft = BillDraft(previousWater = "1", currentWater = "1", previousElectricity = "100", currentElectricity = "234")
+        val bill = createBill(room, settings, draft)
+        assertEquals("0.6", bill.managementRate)
+        assertEquals("80", bill.managementAmount)
+        assertEquals("674", bill.total)
+        assertEquals("0", createBill(room.copy(customManagementRate = "0"), settings, draft).managementAmount)
+    }
+
+    @Test
+    fun fixedRoomChargesApplyOnlyToNewBillsAndPreserveEdits() {
+        val room = Room(number = "101", rent = "500", recurringCharges = listOf(CustomCharge("网络费", "30")))
+        val draft = BillDraft(previousWater = "1", currentWater = "1", previousElectricity = "1", currentElectricity = "1",
+            customCharges = room.chargesForBill(null, null))
+        val bill = createBill(room, PricingSettings(), draft)
+        assertEquals("530", bill.total)
+        assertEquals(room.recurringCharges, bill.customCharges)
+        assertEquals(emptyList<CustomCharge>(), room.chargesForBill(BillDraft(), bill))
+        assertEquals(bill.customCharges, room.copy(recurringCharges = listOf(CustomCharge("网络费", "50"))).chargesForBill(null, bill))
+    }
 }

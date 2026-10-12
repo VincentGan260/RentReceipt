@@ -26,42 +26,50 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.vincent.rentreceipt.export.ReceiptExporter
 import com.vincent.rentreceipt.model.Bill
+import com.vincent.rentreceipt.model.CustomCharge
 import com.vincent.rentreceipt.model.DepositStatus
 import com.vincent.rentreceipt.model.PricingSettings
 import com.vincent.rentreceipt.model.Room
 import com.vincent.rentreceipt.model.ReceiptTemplate
-import com.vincent.rentreceipt.model.resolvedElectricityUsage
-import com.vincent.rentreceipt.model.resolvedWaterUsage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
 import java.util.UUID
 import java.time.LocalDate
 
 @Composable
-fun BackButton(onBack: () -> Unit) = KitIconButton(onClick = onBack) {
-    Icon(KitIcons.Back, "返回", Modifier.size(28.dp))
+fun BackButton(onBack: () -> Unit) {
+    com.aritxonly.deadliner.ui.material.glass.SoftGlassIconButton(
+        onClick = onBack, size = 44.dp, shadowRadiusScale = 0.34f,
+        materialAlpha = com.aritxonly.deadliner.ui.material.glass.LocalTopBarButtonMaterialProgress.current
+    ) {
+        Icon(MiuixIcons.ChevronBackward, "返回", Modifier.size(24.dp), tint = KitColors.onSurface)
+    }
 }
 
 @Composable
 fun SettingsScreen(settings: PricingSettings, onBack: () -> Unit, onSave: (PricingSettings) -> Unit) {
     var water by remember { mutableStateOf(settings.defaultWaterRate) }
     var electricity by remember { mutableStateOf(settings.defaultElectricityRate) }
+    var management by remember { mutableStateOf(settings.defaultManagementRate.orEmpty()) }
     var waterMeterMax by remember { mutableStateOf(settings.defaultWaterMeterMax.orEmpty()) }
     var electricityMeterMax by remember { mutableStateOf(settings.defaultElectricityMeterMax.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     ExpressivePage("收费设置", navigation = { BackButton(onBack) }) {
         item {
+            SectionTitle("默认单价")
             ExpressiveCard {
-                Text("默认水电单价", style = KitTypography.headlineMedium)
                 Text("房间没有单独设置时使用这里的价格。", color = KitColors.onSurfaceVariant)
                 NumberField("水费（元/吨）", water) { water = it }
                 NumberField("电费（元/度）", electricity) { electricity = it }
+                NumberField("公共服务费（元，可留空）", management) { management = it }
             }
         }
         item {
+            SectionTitle("表具归零上限")
             ExpressiveCard {
-                Text("表具归零上限", style = KitTypography.headlineMedium)
                 Text("读数从上限归零时用于计算实际用量；留空表示不自动处理。")
                 NumberField("水表上限（可留空）", waterMeterMax) { waterMeterMax = it }
                 NumberField("电表上限（例如10000）", electricityMeterMax) { electricityMeterMax = it }
@@ -72,6 +80,7 @@ fun SettingsScreen(settings: PricingSettings, onBack: () -> Unit, onSave: (Prici
             Button(onClick = {
                 if (
                     water.toBigDecimalOrNull() == null || electricity.toBigDecimalOrNull() == null ||
+                    (management.isNotBlank() && (management.toBigDecimalOrNull() == null || management.toBigDecimal().signum() < 0)) ||
                     (waterMeterMax.isNotBlank() && waterMeterMax.toBigDecimalOrNull() == null) ||
                     (electricityMeterMax.isNotBlank() && electricityMeterMax.toBigDecimalOrNull() == null)
                 ) error = "请输入有效的单价和表具上限"
@@ -80,7 +89,8 @@ fun SettingsScreen(settings: PricingSettings, onBack: () -> Unit, onSave: (Prici
                         water,
                         electricity,
                         waterMeterMax.takeIf(String::isNotBlank),
-                        electricityMeterMax.takeIf(String::isNotBlank)
+                        electricityMeterMax.takeIf(String::isNotBlank),
+                        management.takeIf(String::isNotBlank)
                     )
                 )
             }, modifier = Modifier.fillMaxWidth()) {
@@ -103,6 +113,8 @@ fun RoomEditorScreen(
     var water by remember { mutableStateOf(room?.customWaterRate ?: settings.defaultWaterRate) }
     var customElectricity by remember { mutableStateOf(room?.customElectricityRate != null) }
     var electricity by remember { mutableStateOf(room?.customElectricityRate ?: settings.defaultElectricityRate) }
+    var customManagement by remember { mutableStateOf(room?.customManagementRate != null) }
+    var management by remember { mutableStateOf(room?.customManagementRate ?: settings.defaultManagementRate ?: "0") }
     var customWaterMeterMax by remember { mutableStateOf(room?.customWaterMeterMax != null) }
     var waterMeterMax by remember {
         mutableStateOf(room?.customWaterMeterMax ?: settings.defaultWaterMeterMax.orEmpty())
@@ -111,6 +123,7 @@ fun RoomEditorScreen(
     var electricityMeterMax by remember {
         mutableStateOf(room?.customElectricityMeterMax ?: settings.defaultElectricityMeterMax.orEmpty())
     }
+    var recurringCharges by remember { mutableStateOf(room?.recurringCharges.orEmpty()) }
     var occupied by remember { mutableStateOf(room?.occupied ?: false) }
     var depositAmount by remember { mutableStateOf(room?.depositAmount ?: "0") }
     var depositStatus by remember { mutableStateOf(room?.depositStatus ?: DepositStatus.NOT_COLLECTED) }
@@ -120,11 +133,15 @@ fun RoomEditorScreen(
     var error by remember { mutableStateOf<String?>(null) }
     val saveRoom = {
         if (
+            recurringCharges.any { it.name.isBlank() || (it.amount.toBigDecimalOrNull()?.signum() ?: -1) < 0 } ||
             number.isBlank() || rent.toBigDecimalOrNull() == null ||
             depositAmount.toBigDecimalOrNull() == null ||
+            (customWater && (water.toBigDecimalOrNull()?.signum() ?: -1) < 0) ||
+            (customElectricity && (electricity.toBigDecimalOrNull()?.signum() ?: -1) < 0) ||
+            (customManagement && (management.toBigDecimalOrNull()?.signum() ?: -1) < 0) ||
             (customWaterMeterMax && waterMeterMax.toBigDecimalOrNull() == null) ||
             (customElectricityMeterMax && electricityMeterMax.toBigDecimalOrNull() == null)
-        ) error = "请填写有效的房号、月租和押金"
+        ) error = "请检查房号、金额和单价"
         else onSave(
             Room(
                 id = room?.id ?: UUID.randomUUID().toString(),
@@ -139,16 +156,55 @@ fun RoomEditorScreen(
                 depositCollectedDate = depositCollectedDate,
                 depositRefundedDate = depositRefundedDate,
                 customWaterMeterMax = waterMeterMax.takeIf { customWaterMeterMax },
-                customElectricityMeterMax = electricityMeterMax.takeIf { customElectricityMeterMax }
+                customElectricityMeterMax = electricityMeterMax.takeIf { customElectricityMeterMax },
+                customManagementRate = management.takeIf { customManagement },
+                recurringCharges = recurringCharges.map { it.copy(name = it.name.trim()) }
             )
         )
     }
-    ExpressivePage(if (room == null) "新增房间" else "${room.number} 房", navigation = { BackButton(onBack) }) {
+    ExpressivePage(
+        if (room == null) "新增房间" else "${room.number} 房",
+        navigation = { BackButton(onBack) },
+        actions = {
+            KitIconButton(onClick = saveRoom) {
+                Icon(KitIcons.Save, "保存房间")
+            }
+        }
+    ) {
         item {
             ExpressiveCard {
                 TextField("房号", number) { number = it }
                 NumberField("月租（元）", rent) { rent = it }
                 ToggleLine("已出租", occupied) { occupied = it }
+            }
+        }
+        item {
+            ExpressiveCard {
+                Text("收费设置", style = KitTypography.titleLarge)
+                ToggleLine("自定义水价", customWater) { customWater = it }
+                if (customWater) NumberField("水费（元/吨）", water) { water = it }
+                ToggleLine("自定义电价", customElectricity) { customElectricity = it }
+                if (customElectricity) NumberField("电费（元/度）", electricity) { electricity = it }
+                ToggleLine("自定义公共服务费", customManagement) { customManagement = it }
+                if (customManagement) NumberField("公共服务费（元）", management) { management = it }
+            }
+        }
+        item {
+            ExpressiveCard {
+                ChargesEditor("每月固定费用", recurringCharges) { recurringCharges = it }
+            }
+        }
+        item {
+            ExpressiveCard {
+                Text("表具设置", style = KitTypography.titleLarge)
+                ToggleLine("自定义水表归零上限", customWaterMeterMax) { customWaterMeterMax = it }
+                if (customWaterMeterMax) NumberField("水表上限", waterMeterMax) { waterMeterMax = it }
+                ToggleLine("自定义电表归零上限", customElectricityMeterMax) {
+                    customElectricityMeterMax = it
+                }
+                if (customElectricityMeterMax) {
+                    NumberField("电表上限", electricityMeterMax) { electricityMeterMax = it }
+                }
             }
         }
         item {
@@ -183,48 +239,20 @@ fun RoomEditorScreen(
             }
         }
         error?.let { item { Text(it, color = KitColors.error) } }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (room != null) {
-                    OutlinedButton(
-                        onClick = { confirmDelete = true },
-                        modifier = Modifier.weight(1f),
-                        destructive = true
-                    ) {
-                        Icon(KitIcons.Delete, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("删除")
-                    }
-                }
-                Button(
-                    onClick = saveRoom,
-                    modifier = Modifier.weight(1f)
+        if (room != null) {
+            item {
+                OutlinedButton(
+                    onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    destructive = true
                 ) {
-                    Icon(KitIcons.Save, null)
+                    Icon(KitIcons.Delete, null)
                     Spacer(Modifier.width(8.dp))
-                    Text("保存")
+                    Text("删除房间")
                 }
             }
         }
-        item {
-            ExpressiveCard {
-                ToggleLine("自定义水价", customWater) { customWater = it }
-                if (customWater) NumberField("水费（元/吨）", water) { water = it }
-                else Text("使用默认 ¥${settings.defaultWaterRate}")
-                ToggleLine("自定义电价", customElectricity) { customElectricity = it }
-                if (customElectricity) NumberField("电费（元/度）", electricity) { electricity = it }
-                else Text("使用默认 ¥${settings.defaultElectricityRate}")
-                ToggleLine("自定义水表归零上限", customWaterMeterMax) { customWaterMeterMax = it }
-                if (customWaterMeterMax) NumberField("水表上限", waterMeterMax) { waterMeterMax = it }
-                else Text("使用楼栋设置 ${settings.defaultWaterMeterMax ?: "未设置"}")
-                ToggleLine("自定义电表归零上限", customElectricityMeterMax) {
-                    customElectricityMeterMax = it
-                }
-                if (customElectricityMeterMax) {
-                    NumberField("电表上限", electricityMeterMax) { electricityMeterMax = it }
-                } else Text("使用楼栋设置 ${settings.defaultElectricityMeterMax ?: "未设置"}")
-            }
-        }
+
     }
     if (confirmDelete && room != null) KitAlertDialog(
         onDismissRequest = { confirmDelete = false },
@@ -260,8 +288,6 @@ fun BillPreviewScreen(
     ExpressivePage("${bill.roomNumber} 房 · ${bill.month}", navigation = { BackButton(onBack) }) {
         item {
             ExpressiveCard {
-                Text("房租单预览", style = KitTypography.titleLarge)
-                Text("文字会自动缩小到表格范围内，保存图片与此预览一致。")
                 Image(
                     bitmap = preview.asImageBitmap(),
                     contentDescription = "房租单最终效果预览",
@@ -269,18 +295,6 @@ fun BillPreviewScreen(
                         ReceiptExporter.WIDTH.toFloat() / ReceiptExporter.heightFor(bill)
                     )
                 )
-            }
-        }
-        item {
-            ExpressiveCard {
-                Text("应收合计", color = KitColors.onSurfaceVariant)
-                Text("¥${bill.total}", style = KitTypography.displaySmall)
-                BillLine("房租", bill.rent)
-                BillLine("水费 · 用量 ${bill.resolvedWaterUsage()}", bill.waterAmount)
-                BillLine("电费 · 用量 ${bill.resolvedElectricityUsage()}", bill.electricityAmount)
-                bill.customCharges.forEach { charge ->
-                    BillLine(charge.name, charge.amount)
-                }
             }
         }
         item {
@@ -297,7 +311,7 @@ fun BillPreviewScreen(
             }, modifier = Modifier.fillMaxWidth()) {
                 Icon(KitIcons.Save, null)
                 Spacer(Modifier.width(8.dp))
-                Text("保存高清图片")
+                Text("保存图片")
             }
         }
         item {
@@ -315,6 +329,26 @@ fun BillPreviewScreen(
 }
 
 @Composable
-private fun BillLine(label: String, amount: String) {
-    Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text("¥$amount") }
+fun ChargesEditor(title: String, charges: List<CustomCharge>, onChange: (List<CustomCharge>) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = KitTypography.titleMedium, modifier = Modifier.weight(1f))
+        TextButton(text = "添加", onClick = { onChange(charges + CustomCharge()) })
+    }
+    charges.forEachIndexed { index, charge ->
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KitTextField(value = charge.name, onValueChange = { name ->
+                    onChange(charges.mapIndexed { position, item -> if (position == index) item.copy(name = name) else item })
+                }, label = "费用名称", singleLine = true, modifier = Modifier.weight(1f))
+                KitIconButton(onClick = { onChange(charges.filterIndexed { position, _ -> position != index }) }) {
+                    Icon(KitIcons.Delete, "删除费用", tint = KitColors.error)
+                }
+            }
+            NumberField("金额（元）", charge.amount) { amount ->
+                onChange(charges.mapIndexed { position, item -> if (position == index) item.copy(amount = amount) else item })
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+    }
 }

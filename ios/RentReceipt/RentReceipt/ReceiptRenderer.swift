@@ -4,12 +4,16 @@ import UIKit
 enum ReceiptRenderer {
     static let width: CGFloat = 3508
     static let baseHeight: CGFloat = 1970
-    static let customRowHeight: CGFloat = 240
+    static let customRowHeight: CGFloat = 300
     private static let detailLabelSize: CGFloat = 66
     private static let detailValueSize: CGFloat = 136
 
+    private static func extraCharges(_ bill: Bill) -> [CustomCharge] {
+        (bill.managementRate != nil ? [CustomCharge(name: "公共服务费", amount: bill.managementAmount)] : []) + bill.customCharges
+    }
+
     static func image(for bill: Bill, buildingName: String, template: ReceiptTemplate = ReceiptTemplate()) -> UIImage {
-        let height = baseHeight + CGFloat(bill.customCharges.count) * customRowHeight
+        let height = baseHeight + CGFloat(extraCharges(bill).count) * customRowHeight
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -30,7 +34,7 @@ enum ReceiptRenderer {
     }
 
     private static func draw(_ bill: Bill, buildingName: String, template: ReceiptTemplate, in context: CGContext) {
-        let customOffset = CGFloat(bill.customCharges.count) * customRowHeight
+        let customOffset = CGFloat(extraCharges(bill).count) * customRowHeight
         UIColor(red: 1, green: 0.988, blue: 0.957, alpha: 1).setFill()
         context.fill(CGRect(x: 0, y: 0, width: width, height: baseHeight + customOffset))
         context.saveGState(); context.translateBy(x: 0, y: 70)
@@ -40,22 +44,32 @@ enum ReceiptRenderer {
         let red = UIColor(red: 0.604, green: 0.094, blue: 0.141, alpha: 1)
         let left: CGFloat = 95, right = width - 95, top: CGFloat = 285
         let detailsBottom: CGFloat = 1400 + customOffset, bottom: CGFloat = 1800 + customOffset
-        let columns: [CGFloat] = [left, 620, 1100, 1580, 2060, right]
+        let columns: [CGFloat] = [left, 620, 1100, 1580, 2060, 2540, right]
         var rows: [CGFloat] = [500, 800, 1100, 1400]
-        for index in bill.customCharges.indices { rows.append(1400 + CGFloat(index + 1) * customRowHeight) }
+        for index in extraCharges(bill).indices { rows.append(1400 + CGFloat(index + 1) * customRowHeight) }
         rows.append(bottom)
         context.setStrokeColor(ink.cgColor); context.setLineWidth(5)
         context.stroke(CGRect(x: left, y: top, width: right - left, height: bottom - top))
-        for x in columns.dropFirst().dropLast() { context.move(to: CGPoint(x: x, y: top)); context.addLine(to: CGPoint(x: x, y: detailsBottom)); context.strokePath() }
+        for x in columns.dropFirst().dropLast() {
+            // Amount-only rows share one blank area between the item and amount columns.
+            let lineBottom: CGFloat = (x == 620 || x == 2540) ? detailsBottom : 1100
+            context.move(to: CGPoint(x: x, y: top))
+            context.addLine(to: CGPoint(x: x, y: lineBottom))
+            context.strokePath()
+        }
         for y in rows { context.move(to: CGPoint(x: left, y: y)); context.addLine(to: CGPoint(x: right, y: y)); context.strokePath() }
 
-        for (index, charge) in bill.customCharges.enumerated() {
+        for (index, charge) in extraCharges(bill).enumerated() {
             let rowTop = 1400 + CGFloat(index) * customRowHeight
             centered(charge.name, rect: CGRect(x: left, y: rowTop, width: 525, height: customRowHeight), size: detailLabelSize, color: ink, numeric: false)
-            centered(charge.amount, rect: CGRect(x: 2060, y: rowTop, width: right - 2060, height: customRowHeight), size: detailValueSize, color: blue, numeric: true)
+            centered(charge.amount, rect: CGRect(x: 2540, y: rowTop, width: right - 2540, height: customRowHeight), size: detailValueSize, color: blue, numeric: true)
         }
 
-        for element in template.elements {
+        let missingRates = ReceiptTemplate.defaultElements.filter { element in
+            ["headRate", "waterRate", "electricRate"].contains(element.id) && !template.elements.contains { $0.id == element.id }
+        }
+        for element in template.elements + missingRates {
+            if element.id == "rentUsage" { continue }
             if element.id == "date" {
                 drawStyledDate(bill, element: element, ink: ink, blue: blue, left: left, right: right)
                 continue
@@ -215,7 +229,8 @@ enum ReceiptRenderer {
         else if id.hasSuffix("Current") { pair = (620, 1100) }
         else if id.hasSuffix("Previous") { pair = (1100, 1580) }
         else if id.hasSuffix("Usage") { pair = (1580, 2060) }
-        else if id.hasSuffix("Amount") { pair = (2060, right) }
+        else if id.hasSuffix("Rate") { pair = (2060, 2540) }
+        else if id.hasSuffix("Amount") { pair = (2540, right) }
         else { return nil }
         return CGRect(x: pair.0, y: row.0, width: pair.1 - pair.0, height: row.1 - row.0)
     }
@@ -224,10 +239,10 @@ enum ReceiptRenderer {
         switch id { case "title": 2500; case "room": 1500; case "receiptNo": 620; case "date": 850; default: 1000 }
     }
     private static func isNumeric(_ id: String) -> Bool {
-        ["room", "receiptNo", "waterCurrent", "waterPrevious", "waterUsage", "waterAmount", "electricCurrent", "electricPrevious", "electricUsage", "electricAmount", "rentUsage", "rentAmount", "total"].contains(id)
+        ["room", "receiptNo", "waterCurrent", "waterPrevious", "waterUsage", "waterRate", "waterAmount", "electricCurrent", "electricPrevious", "electricUsage", "electricRate", "electricAmount", "rentUsage", "rentAmount", "total"].contains(id)
     }
-    private static let detailLabelIDs: Set<String> = ["headItem", "headCurrent", "headPrevious", "headUsage", "headAmount", "waterLabel", "electricLabel", "rentLabel"]
-    private static let detailValueIDs: Set<String> = ["waterCurrent", "waterPrevious", "waterUsage", "waterAmount", "electricCurrent", "electricPrevious", "electricUsage", "electricAmount", "rentUsage", "rentAmount"]
+    private static let detailLabelIDs: Set<String> = ["headItem", "headCurrent", "headPrevious", "headUsage", "headRate", "headAmount", "waterLabel", "electricLabel", "rentLabel"]
+    private static let detailValueIDs: Set<String> = ["waterCurrent", "waterPrevious", "waterUsage", "waterRate", "waterAmount", "electricCurrent", "electricPrevious", "electricUsage", "electricRate", "electricAmount", "rentUsage", "rentAmount"]
 
     static func rmbUpper(_ amount: Decimal) -> String {
         let digits = Array("零壹贰叁肆伍陆柒捌玖"), units = ["", "拾", "佰", "仟"], sections = ["", "万", "亿", "兆"]

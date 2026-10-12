@@ -1,5 +1,14 @@
 package com.vincent.rentreceipt.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
+import com.aritxonly.deadliner.ui.material.glass.ProgressiveTopBarMaterial
+import com.aritxonly.deadliner.ui.material.glass.LocalTopBarScrollProgress
+import com.aritxonly.deadliner.ui.material.glass.LocalImmersiveTopBarEnabled
+import com.aritxonly.deadliner.ui.material.glass.LocalTopBarButtonMaterialProgress
+import com.aritxonly.deadliner.ui.material.glass.SoftGlassIconButton
+import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialBackdrop
+import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialSpec
+import com.aritxonly.deadliner.ui.theme.AdvancedMaterialSpec
 import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
@@ -12,6 +21,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Box
@@ -121,10 +133,26 @@ import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 
+private class PageMaterialHost {
+    var backdrop by mutableStateOf<top.yukonga.miuix.kmp.blur.LayerBackdrop?>(null)
+}
+private val LocalPageMaterialHost = staticCompositionLocalOf { PageMaterialHost() }
+
+val LocalPageTransitionModifier = staticCompositionLocalOf<Modifier> { Modifier }
+
+val LocalPageSearchAction = staticCompositionLocalOf<(@Composable () -> Unit)?> { null }
+
+val LocalPageBottomBar = staticCompositionLocalOf<(@Composable () -> Unit)?> { null }
+
 val LocalPageScrollStateChange = staticCompositionLocalOf<(Boolean) -> Unit> { {} }
 val LocalUseMiuix = staticCompositionLocalOf { false }
 val LocalBottomBarStyle = staticCompositionLocalOf { BottomBarStyle.LIQUID_GLASS }
 val LocalAnimationsEnabled = staticCompositionLocalOf { true }
+private val LocalDialogAction = staticCompositionLocalOf { false }
+private val LocalPrimaryDialogAction = staticCompositionLocalOf { false }
+
+private fun Modifier.dialogAction(): Modifier =
+    fillMaxWidth().heightIn(min = 52.dp)
 
 /** Semantic tokens shared by the intentional MIUIX and Material 3 presentation modes. */
 object KitColors {
@@ -175,52 +203,29 @@ object KitColors {
 }
 
 object KitTypography {
-    val displaySmall: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.title1
-        } else MaterialTheme.typography.displaySmall
-    val headlineMedium: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.title3
-        } else MaterialTheme.typography.headlineMedium
-    val headlineSmall: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.title3
-        } else MaterialTheme.typography.headlineSmall
-    val titleLarge: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.title4
-        } else MaterialTheme.typography.titleLarge
-    val titleMedium: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.headline1
-        } else MaterialTheme.typography.titleMedium
-    val titleSmall: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.subtitle
-        } else MaterialTheme.typography.titleSmall
-    val bodyLarge: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.paragraph
-        } else MaterialTheme.typography.bodyLarge
-    val labelLarge: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.button
-        } else MaterialTheme.typography.labelLarge
-    val labelSmall: TextStyle
-        @Composable @ReadOnlyComposable get() = if (LocalUseMiuix.current) {
-            XiaomiTheme.textStyles.footnote2
-        } else MaterialTheme.typography.labelSmall
+    val displaySmall: TextStyle @Composable get() = XiaomiTheme.textStyles.title1
+    val headlineMedium: TextStyle @Composable get() = XiaomiTheme.textStyles.title4
+    val headlineSmall: TextStyle @Composable get() = XiaomiTheme.textStyles.title4
+    val titleLarge: TextStyle @Composable get() = XiaomiTheme.textStyles.title4
+    val titleMedium: TextStyle @Composable get() = XiaomiTheme.textStyles.headline1
+    val titleSmall: TextStyle @Composable get() = XiaomiTheme.textStyles.subtitle
+    val bodyLarge: TextStyle @Composable get() = XiaomiTheme.textStyles.body1
+    val summary: TextStyle @Composable get() = XiaomiTheme.textStyles.footnote1
+    val labelLarge: TextStyle @Composable get() = XiaomiTheme.textStyles.button
+    val labelSmall: TextStyle @Composable get() = XiaomiTheme.textStyles.footnote2
 }
+
+private fun uiText(size: Int, height: Int, weight: FontWeight = FontWeight.Normal) = TextStyle(
+    fontSize = size.sp, lineHeight = height.sp, fontWeight = weight,
+    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+)
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
     if (LocalUseMiuix.current) {
-        XiaomiSmallTitle(
-            text = text,
-            modifier = modifier,
-            insideMargin = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-        )
+        XiaomiText(text = text, color = XiaomiTheme.colorScheme.primary,
+            style = XiaomiTheme.textStyles.footnote1,
+            modifier = modifier.padding(horizontal = 24.dp, vertical = 8.dp))
     } else {
         Text(
             text = text,
@@ -240,26 +245,19 @@ fun Text(
     overflow: TextOverflow = TextOverflow.Clip,
     maxLines: Int = Int.MAX_VALUE
 ) {
+    val resolvedStyle = style ?: if (color == KitColors.onSurfaceVariant) KitTypography.summary else KitTypography.bodyLarge
     if (LocalUseMiuix.current) {
         XiaomiText(
             text = text,
             modifier = modifier,
             color = color,
-            style = style ?: XiaomiTheme.textStyles.main,
+            style = resolvedStyle,
             overflow = overflow,
             maxLines = maxLines
         )
-    } else if (style == null) {
-        MaterialText(text = text, modifier = modifier, color = color, overflow = overflow, maxLines = maxLines)
     } else {
-        MaterialText(
-            text = text,
-            modifier = modifier,
-            color = color,
-            style = style,
-            overflow = overflow,
-            maxLines = maxLines
-        )
+        MaterialText(text = text, modifier = modifier, color = color, style = resolvedStyle,
+            overflow = overflow, maxLines = maxLines)
     }
 }
 
@@ -302,16 +300,17 @@ fun Button(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
+    val actionModifier = if (LocalDialogAction.current) modifier.dialogAction() else modifier
     if (LocalUseMiuix.current) {
         XiaomiButton(
             onClick = onClick,
-            modifier = modifier,
+            modifier = actionModifier,
             enabled = enabled,
             colors = XiaomiButtonDefaults.buttonColorsPrimary(),
             content = content
         )
     } else {
-        androidx.compose.material3.Button(onClick, modifier, enabled, content = content)
+        androidx.compose.material3.Button(onClick, actionModifier, enabled, content = content)
     }
 }
 
@@ -322,10 +321,11 @@ fun FilledTonalButton(
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
 ) {
+    val actionModifier = if (LocalDialogAction.current) modifier.dialogAction() else modifier
     if (LocalUseMiuix.current) {
-        XiaomiButton(onClick, modifier, enabled, content = content)
+        XiaomiButton(onClick, actionModifier, enabled, content = content)
     } else {
-        androidx.compose.material3.FilledTonalButton(onClick, modifier, enabled, content = content)
+        androidx.compose.material3.FilledTonalButton(onClick, actionModifier, enabled, content = content)
     }
 }
 
@@ -337,6 +337,7 @@ fun OutlinedButton(
     destructive: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
+    val actionModifier = if (LocalDialogAction.current) modifier.dialogAction() else modifier
     if (LocalUseMiuix.current) {
         val miuixColors = if (destructive) {
             XiaomiButtonDefaults.buttonColors(
@@ -344,11 +345,11 @@ fun OutlinedButton(
                 contentColor = XiaomiTheme.colorScheme.error
             )
         } else XiaomiButtonDefaults.buttonColors()
-        XiaomiButton(onClick, modifier, enabled, colors = miuixColors, content = content)
+        XiaomiButton(onClick, actionModifier, enabled, colors = miuixColors, content = content)
     } else {
         androidx.compose.material3.OutlinedButton(
             onClick = onClick,
-            modifier = modifier,
+            modifier = actionModifier,
             enabled = enabled,
             border = if (destructive) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null,
             colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
@@ -367,7 +368,13 @@ fun TextButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true
 ) {
-    if (LocalUseMiuix.current) {
+    if (LocalDialogAction.current) {
+        if (LocalPrimaryDialogAction.current) {
+            Button(onClick = onClick, modifier = modifier, enabled = enabled) { Text(text, maxLines = 1) }
+        } else {
+            OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled) { Text(text, maxLines = 1) }
+        }
+    } else if (LocalUseMiuix.current) {
         XiaomiTextButton(text = text, onClick = onClick, modifier = modifier, enabled = enabled)
     } else {
         androidx.compose.material3.TextButton(onClick, modifier, enabled) { MaterialText(text) }
@@ -396,7 +403,11 @@ fun KitIconButton(
     enabled: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    if (LocalUseMiuix.current) {
+    if (LocalUseMiuix.current && LocalImmersiveTopBarEnabled.current) {
+        SoftGlassIconButton(onClick = onClick, modifier = modifier, enabled = enabled,
+            materialAlpha = LocalTopBarButtonMaterialProgress.current,
+            shadowRadiusScale = 0.34f, content = content)
+    } else if (LocalUseMiuix.current) {
         XiaomiIconButton(
             onClick = onClick,
             modifier = modifier,
@@ -457,9 +468,9 @@ fun KitSwitch(
     enabled: Boolean = true
 ) {
     if (LocalUseMiuix.current) {
-        XiaomiSwitch(
+        com.aritxonly.myhypermodifier.DeadlinerSwitch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = { onCheckedChange?.invoke(it) },
             modifier = modifier,
             enabled = enabled
         )
@@ -483,22 +494,9 @@ fun KitSwitchPreference(
     onCheckedChange: (Boolean) -> Unit
 ) {
     if (LocalUseMiuix.current) {
-        XiaomiSwitchPreference(
-            title = title,
-            summary = summary,
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange,
-            startAction = icon?.let { image ->
-                @Composable {
-                    Icon(
-                        imageVector = image,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 12.dp).size(24.dp),
-                        tint = XiaomiTheme.colorScheme.onBackground
-                    )
-                }
-            }
+        com.aritxonly.myhypermodifier.SettingsSwitchItem(
+            label = title, supportingText = summary.orEmpty(), checked = checked,
+            enabled = enabled, onCheckedChange = onCheckedChange
         )
         return
     }
@@ -534,14 +532,13 @@ fun KitSlider(
     steps: Int = 0
 ) {
     if (LocalUseMiuix.current) {
-        XiaomiSlider(
+        com.aritxonly.myhypermodifier.DeadlinerSlider(
             value = value,
             onValueChange = onValueChange,
             modifier = modifier,
             enabled = enabled,
             valueRange = valueRange,
-            steps = steps,
-            showKeyPoints = steps > 0
+            steps = steps
         )
     } else {
         androidx.compose.material3.Slider(
@@ -598,10 +595,11 @@ fun KitTextField(
             keyboardActions = keyboardActions,
             leadingIcon = leadingIcon,
             trailingIcon = trailingIcon,
+            textStyle = KitTypography.bodyLarge,
             colors = XiaomiTextFieldDefaults.textFieldColors(
                 backgroundColor = XiaomiTheme.colorScheme.surfaceContainerHigh,
                 labelColor = XiaomiTheme.colorScheme.onSurfaceContainer,
-                borderColor = XiaomiTheme.colorScheme.onSurfaceVariantActions
+                borderColor = XiaomiTheme.colorScheme.primary
             )
         )
     } else {
@@ -665,6 +663,22 @@ fun KitSearchBar(
 }
 
 @Composable
+private fun DialogActions(dismissButton: @Composable () -> Unit, confirmButton: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth(),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalDialogAction provides true) {
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalPrimaryDialogAction provides false) { dismissButton() }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalPrimaryDialogAction provides true) { confirmButton() }
+            }
+        }
+    }
+}
+
+@Composable
 fun KitAlertDialog(
     onDismissRequest: () -> Unit,
     title: String,
@@ -672,36 +686,22 @@ fun KitAlertDialog(
     confirmButton: @Composable () -> Unit,
     dismissButton: @Composable () -> Unit = {}
 ) {
-    if (LocalUseMiuix.current) {
-        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-        XiaomiWindowDialog(
-            show = true,
-            title = title,
-            onDismissRequest = onDismissRequest,
-            maxWidth = 560.dp,
-            largeScreen = configuration.screenWidthDp >= 600 ||
-                configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val host = LocalPageMaterialHost.current
+    val dialogBodyHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.45f).dp
+    CompositionLocalProvider(
+        LocalAdvancedMaterialBackdrop provides host.backdrop,
+        LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true, blurRadius = 92f)
+    ) {
+        com.aritxonly.myhypermodifier.DeadlinerMiuixDialog(
+            show = true, title = title, summary = null, onDismissRequest = onDismissRequest
         ) {
-            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)) {
-                text()
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { dismissButton() }
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { confirmButton() }
+            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(24.dp)) {
+                Column(Modifier.heightIn(max = dialogBodyHeight).verticalScroll(rememberScrollState())) {
+                    text()
                 }
+                DialogActions(dismissButton, confirmButton)
             }
         }
-    } else {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = { Text(title) },
-            text = text,
-            confirmButton = confirmButton,
-            dismissButton = dismissButton
-        )
     }
 }
 
@@ -714,121 +714,23 @@ fun RentTheme(settings: AppearanceSettingsState, content: @Composable () -> Unit
         AppColorMode.LIGHT -> false
         AppColorMode.DARK -> true
     }
-    val useMiuix = true
-    val paletteStyle = runCatching { PaletteStyle.valueOf(settings.paletteStyle) }
-        .getOrDefault(PaletteStyle.TonalSpot)
-    val colorSpec = runCatching { ColorSpec.SpecVersion.valueOf(settings.colorSpec) }
-        .getOrDefault(ColorSpec.SpecVersion.Default)
-    val colors = when {
-        settings.monet && settings.keyColor == 0 && !LocalInspectionMode.current &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        settings.monet -> rememberDynamicColorScheme(
-            seedColor = if (settings.keyColor == 0) Color(0xFF4C6FAE) else Color(settings.keyColor),
-            isDark = dark,
-            style = paletteStyle,
-            specVersion = colorSpec
-        )
-        dark -> darkColorScheme(
-            primary = Color(0xFF277AF7),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFF183A67),
-            onPrimaryContainer = Color.White,
-            secondary = Color(0xFF277AF7),
-            onSecondary = Color.White,
-            secondaryContainer = Color(0xFF263A55),
-            onSecondaryContainer = Color(0xFFE8F1FF),
-            tertiary = Color(0xFF277AF7),
-            onTertiary = Color.White,
-            tertiaryContainer = Color(0xFF263A55),
-            onTertiaryContainer = Color(0xFFE8F1FF)
-        )
-        else -> lightColorScheme(
-            primary = Color(0xFF3482FF),
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFFEAF2FF),
-            onPrimaryContainer = Color(0xFF17365F),
-            secondary = Color(0xFF3482FF),
-            onSecondary = Color.White,
-            secondaryContainer = Color(0xFFEAF2FF),
-            onSecondaryContainer = Color(0xFF17365F),
-            tertiary = Color(0xFF3482FF),
-            onTertiary = Color.White,
-            tertiaryContainer = Color(0xFFEAF2FF),
-            onTertiaryContainer = Color(0xFF17365F)
-        )
-    }
-    val shapes = Shapes(
-        extraSmall = RoundedCornerShape(8.dp),
-        small = RoundedCornerShape(14.dp),
-        medium = RoundedCornerShape(22.dp),
-        large = RoundedCornerShape(30.dp),
-        extraLarge = RoundedCornerShape(38.dp)
-    )
-    val typography = Typography(
-        displaySmall = TextStyle(
-            fontSize = 42.sp,
-            lineHeight = 46.sp,
-            fontWeight = FontWeight.Black
-        ),
-        headlineLarge = TextStyle(
-            fontSize = 34.sp,
-            lineHeight = 40.sp,
-            fontWeight = FontWeight.SemiBold
-        ),
-        headlineMedium = TextStyle(
-            fontSize = 26.sp,
-            lineHeight = 32.sp,
-            fontWeight = FontWeight.Bold
-        ),
-        headlineSmall = TextStyle(
-            fontSize = 24.sp,
-            lineHeight = 30.sp,
-            fontWeight = FontWeight.Medium
-        ),
-        titleLarge = TextStyle(
-            fontSize = 22.sp,
-            lineHeight = 28.sp,
-            fontWeight = FontWeight.Bold
-        ),
-        titleMedium = TextStyle(
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
-            fontWeight = FontWeight.SemiBold
-        ),
-        bodyLarge = TextStyle(
-            fontSize = 17.sp,
-            lineHeight = 24.sp
-        ),
-        labelLarge = TextStyle(
-            fontSize = 15.sp,
-            lineHeight = 20.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    )
-    val miuixMode = when {
-        settings.monet && settings.colorMode == AppColorMode.LIGHT -> ColorSchemeMode.MonetLight
-        settings.monet && settings.colorMode == AppColorMode.DARK -> ColorSchemeMode.MonetDark
-        settings.monet -> ColorSchemeMode.MonetSystem
-        settings.colorMode == AppColorMode.LIGHT -> ColorSchemeMode.Light
-        settings.colorMode == AppColorMode.DARK -> ColorSchemeMode.Dark
-        else -> ColorSchemeMode.System
-    }
-    val miuixPalette = runCatching { ThemePaletteStyle.valueOf(settings.paletteStyle) }
-        .getOrDefault(ThemePaletteStyle.TonalSpot)
-    val miuixSpec = when (settings.colorSpec) {
-        "Spec2025", "SPEC_2025" -> ThemeColorSpec.Spec2025
-        else -> ThemeColorSpec.Spec2021
-    }
-    val miuixController = remember(
-        miuixMode, settings.keyColor, miuixPalette, miuixSpec
-    ) {
-        ThemeController(
-            colorSchemeMode = miuixMode,
-            keyColor = settings.keyColor.takeIf { it != 0 }?.let(::Color),
-            paletteStyle = miuixPalette,
-            colorSpec = miuixSpec
+    val colors = remember(dark) { com.aritxonly.myhypermodifier.MhmPresetColors.material(dark) }
+    val miuixColors = remember(colors, dark) { com.aritxonly.myhypermodifier.MhmPresetColors.miuix(colors, dark) }
+    val materialHost = remember { PageMaterialHost() }
+    val defaultTextStyles = XiaomiTheme.textStyles
+    val textStyles = remember(defaultTextStyles) {
+        defaultTextStyles.copy(
+            main = uiText(16, 22), paragraph = uiText(16, 22),
+            body1 = uiText(16, 22), body2 = uiText(14, 20),
+            button = uiText(16, 22, FontWeight.Medium),
+            footnote1 = uiText(14, 20), footnote2 = uiText(12, 16),
+            headline1 = uiText(16, 22, FontWeight.Medium),
+            headline2 = uiText(16, 22, FontWeight.Medium),
+            subtitle = uiText(14, 20, FontWeight.Medium),
+            title1 = uiText(32, 40, FontWeight.Bold),
+            title2 = uiText(28, 36, FontWeight.Bold),
+            title3 = uiText(24, 32, FontWeight.SemiBold),
+            title4 = uiText(20, 26, FontWeight.Medium)
         )
     }
     SideEffect {
@@ -845,14 +747,24 @@ fun RentTheme(settings: AppearanceSettingsState, content: @Composable () -> Unit
             )
         )
     }
-    androidx.compose.runtime.CompositionLocalProvider(
-        LocalUseMiuix provides useMiuix,
-        LocalBottomBarStyle provides settings.bottomBarStyle,
-        LocalAnimationsEnabled provides settings.animations
+    CompositionLocalProvider(
+        LocalUseMiuix provides true,
+        LocalBottomBarStyle provides BottomBarStyle.LIQUID_GLASS,
+        LocalAnimationsEnabled provides settings.animations,
+        LocalPageMaterialHost provides materialHost,
+        LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true, blurRadius = 92f),
+        LocalAdvancedMaterialBackdrop provides materialHost.backdrop
     ) {
-        MaterialTheme(colorScheme = colors, shapes = shapes, typography = typography) {
-            if (useMiuix) XiaomiTheme(controller = miuixController, content = content)
-            else content()
+        MaterialTheme(colorScheme = colors, typography = Typography(
+            bodyLarge = uiText(16, 22), bodyMedium = uiText(16, 22), bodySmall = uiText(14, 20),
+            titleLarge = uiText(20, 26, FontWeight.Medium), titleMedium = uiText(16, 22, FontWeight.Medium),
+            titleSmall = uiText(14, 20, FontWeight.Medium), labelLarge = uiText(16, 22, FontWeight.Medium),
+            labelMedium = uiText(14, 20), labelSmall = uiText(12, 16)
+        )) {
+            XiaomiTheme(colors = miuixColors, textStyles = textStyles) {
+                // Own the overlay lifecycle for dialogs declared beside a page.
+                XiaomiScaffold(containerColor = Color.Transparent) { content() }
+            }
         }
     }
 }
@@ -864,8 +776,53 @@ fun ExpressivePage(
     actions: @Composable RowScope.() -> Unit = {},
     floatingAction: @Composable () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
+    searchQuery: String? = null,
+    onSearchQueryChange: ((String) -> Unit)? = null,
     content: LazyListScope.() -> Unit
 ) {
+    var showSearch by remember { mutableStateOf(false) }
+    var searchText by remember { mutableStateOf(searchQuery.orEmpty()) }
+    val searchFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val searchKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val closeSearch = {
+        searchFocusManager.clearFocus()
+        searchKeyboard?.hide()
+        showSearch = false
+    }
+    val searchAction: (@Composable () -> Unit)? = if (searchQuery != null && onSearchQueryChange != null) {
+        {
+            SoftGlassIconButton(onClick = { searchText = searchQuery.orEmpty(); showSearch = true }, size = 54.dp,
+                tint = XiaomiTheme.colorScheme.surfaceContainer,
+                shadowRadiusScale = 0.34f) {
+                Icon(KitIcons.Search, if (searchQuery.isBlank()) "搜索房间号" else "搜索房间号·已筛选",
+                    modifier = Modifier.size(26.dp))
+            }
+        }
+    } else null
+    if (showSearch && searchQuery != null && onSearchQueryChange != null) {
+        KitAlertDialog(
+            onDismissRequest = closeSearch, title = "搜索房间号",
+            text = {
+                KitTextField(value = searchText, onValueChange = { searchText = it },
+                    label = "房间号", modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = {
+                        Box(Modifier.padding(start = 16.dp, end = 12.dp).size(20.dp)) {
+                            Icon(KitIcons.Search, null, Modifier.fillMaxSize(), tint = KitColors.onSurfaceVariant)
+                        }
+                    })
+            },
+            confirmButton = { TextButton("搜索", onClick = { onSearchQueryChange(searchText); closeSearch() }) },
+            dismissButton = { TextButton("清除", onClick = { searchText = ""; onSearchQueryChange(""); closeSearch() }) }
+        )
+    }
+    val contentEntry = remember(title) { androidx.compose.animation.core.Animatable(0.8f) }
+    val playAnimation = LocalAnimationsEnabled.current
+    LaunchedEffect(title, playAnimation) {
+        if (playAnimation) {
+            contentEntry.snapTo(0.8f)
+            contentEntry.animateTo(1f, androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        } else contentEntry.snapTo(1f)
+    }
     val onScrollStateChange = LocalPageScrollStateChange.current
     val useMiuix = LocalUseMiuix.current
     val floatingBottomBar = LocalBottomBarStyle.current == BottomBarStyle.FLOATING
@@ -876,66 +833,54 @@ fun ExpressivePage(
     }
     if (useMiuix) {
         val scrollBehavior = MiuixScrollBehavior()
-        val surfaceColor = XiaomiTheme.colorScheme.surface
-        val topBackdrop = if (isRuntimeShaderSupported()) {
-            rememberLayerBackdrop {
-                drawRect(surfaceColor)
-                drawContent()
-            }
-        } else null
-        val topBlurColors = BlurDefaults.blurColors(
-            blendColors = listOf(BlendColorEntry(surfaceColor.copy(alpha = 0.3f)))
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val progress = if (listState.firstVisibleItemIndex > 0) 1f else
+            (listState.firstVisibleItemScrollOffset / with(density) { 48.dp.toPx() }).coerceIn(0f, 1f)
+        val buttonProgress by androidx.compose.animation.core.animateFloatAsState(
+            progress, animationSpec = androidx.compose.animation.core.tween(220), label = "top-button-material"
         )
+        val bottomBar = LocalPageBottomBar.current
         Box(Modifier.fillMaxSize()) {
-            XiaomiScaffold(
+            CompositionLocalProvider(
+                LocalTopBarButtonMaterialProgress provides buttonProgress,
+                LocalPageSearchAction provides searchAction
+            ) {
+            com.aritxonly.myhypermodifier.DeadlinerMiuixScaffold(
+                scrollProgress = progress,
+                modifier = if (bottomBar != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier,
                 topBar = {
-                    Box {
-                        if (topBackdrop != null) {
-                            Box(
-                                Modifier
-                                    .matchParentSize()
-                                    .graphicsLayer {
-                                        alpha = (-scrollBehavior.state.contentOffset /
-                                            48.dp.toPx()).coerceIn(0f, 1f)
-                                    }
-                                    .progressiveTextureBlur(
-                                        backdrop = topBackdrop,
-                                        shape = RectangleShape,
-                                        gradient = ProgressiveBlur.Top.copy(curve = 2.2f),
-                                        blurRadius = 10f,
-                                        colors = topBlurColors
-                                    )
-                            )
-                        }
+                    if (bottomBar != null) {
                         XiaomiTopAppBar(
-                            title = title,
-                            largeTitle = title,
-                            color = if (topBackdrop != null) Color.Transparent else surfaceColor,
-                            navigationIcon = navigation,
-                            actions = actions,
-                            scrollBehavior = scrollBehavior
+                            title = title, largeTitle = title, color = Color.Transparent,
+                            navigationIcon = navigation, actions = actions, scrollBehavior = scrollBehavior
+                        )
+                    } else {
+                        top.yukonga.miuix.kmp.basic.SmallTopAppBar(
+                            title = title, color = Color.Transparent,
+                            navigationIcon = navigation, actions = actions
                         )
                     }
-                }
+                },
+                bottomBar = { bottomBar?.invoke() }
             ) { innerPadding ->
-                Box(
-                    Modifier.then(
-                        if (topBackdrop != null) Modifier.layerBackdrop(topBackdrop) else Modifier
-                    )
-                ) {
+                    val pageBackdrop = LocalAdvancedMaterialBackdrop.current
+                    val host = LocalPageMaterialHost.current
+                    SideEffect { host.backdrop = pageBackdrop }
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .imePadding()
-                            .nestedScroll(scrollBehavior.nestedScrollConnection),
+                            .graphicsLayer {
+                                alpha = contentEntry.value
+                            }
+                            .imePadding(),
                         contentPadding = PaddingValues(
                             start = 16.dp,
                             top = innerPadding.calculateTopPadding() + 8.dp,
                             end = 16.dp,
                             bottom = if (floatingBottomBar || LocalBottomBarStyle.current == BottomBarStyle.LIQUID_GLASS) 112.dp else 84.dp
                         ),
-                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
                         content = content
                     )
                 }
@@ -1000,47 +945,12 @@ fun ExpressiveCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val useMiuix = LocalUseMiuix.current
-    val animationsEnabled = LocalAnimationsEnabled.current
-    // Card-level decorative icons shift every child onto a different baseline. Miuix
-    // places semantic icons in Preference.startAction or the concrete action itself.
-    val alignedContent: @Composable ColumnScope.() -> Unit = {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
-            content = content
-        )
-    }
-    if (useMiuix) {
-        if (onClick == null) {
-            XiaomiCard(
-                modifier = modifier.fillMaxWidth(),
-                insideMargin = contentPadding,
-                content = alignedContent
-            )
-        } else {
-            XiaomiCard(
-                modifier = modifier.fillMaxWidth(),
-                insideMargin = contentPadding,
-                pressFeedbackType = if (animationsEnabled) PressFeedbackType.Sink
-                else PressFeedbackType.None,
-                onClick = onClick,
-                content = alignedContent
-            )
-        }
-        return
-    }
-    if (onClick == null) {
-        Card(
-            modifier = modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.extraLarge
-        ) { Column(Modifier.fillMaxWidth().padding(contentPadding), content = alignedContent) }
-    } else {
-        Card(
-            onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.extraLarge
-        ) { Column(Modifier.fillMaxWidth().padding(contentPadding), content = alignedContent) }
+    com.aritxonly.myhypermodifier.SettingsSection(
+        modifier = modifier.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(contentPadding),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            content = content)
     }
 }
 

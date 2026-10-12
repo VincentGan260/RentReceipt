@@ -2,6 +2,7 @@ package com.vincent.rentreceipt.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
@@ -58,14 +59,9 @@ fun OverviewScreen(
             if (paidOrder != 0) paidOrder else roomNumberComparator.compare(left.number, right.number)
         }
 
-    ExpressivePage("概览") {
-        item {
-            KitSearchBar(
-                query = query,
-                onQueryChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = "搜索房间号"
-            )
+    ExpressivePage("概览", searchQuery = query, onSearchQueryChange = { query = it }) {
+        if (query.isNotBlank()) item {
+            TextButton("搜索：$query · 清除", onClick = { query = "" })
         }
         item {
             BuildingSelector(
@@ -138,11 +134,11 @@ fun OverviewScreen(
                 val bill = monthBills.firstOrNull { it.roomId == room.id }
                 ExpressiveCard(onClick = { onRoomHistory(room.id) }) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f).padding(end = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${room.number} 房", style = KitTypography.titleLarge)
                             Text(
                                 "${if (room.occupied) "已出租" else "空置"} · 租金 ¥${room.rent}",
-                                color = KitColors.onSurfaceVariant
+                                color = KitColors.onSurfaceVariant, style = KitTypography.summary
                             )
                         }
                         when {
@@ -234,6 +230,7 @@ fun RoomHistoryScreen(
                         Text("水费 ¥${bill.waterAmount}　电费 ¥${bill.electricityAmount}")
                         Text("合计 ¥${bill.total}", style = KitTypography.titleLarge)
                     }
+                    if (bill.managementRate != null) Text("公共服务费 ¥${bill.managementAmount}")
                     bill.customCharges.forEach { charge ->
                         Text("${charge.name} ¥${charge.amount}")
                     }
@@ -275,7 +272,7 @@ private fun AdaptiveNumberText(value: String, expanded: Boolean = false) {
     }
     Text(
         text = value,
-        style = KitTypography.headlineMedium.copy(fontSize = fontSize.sp),
+        style = KitTypography.headlineMedium.copy(fontSize = fontSize.sp, lineHeight = (fontSize * 4f / 3f).sp),
         maxLines = 1,
         overflow = TextOverflow.Clip
     )

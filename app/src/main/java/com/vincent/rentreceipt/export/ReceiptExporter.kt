@@ -14,6 +14,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.res.ResourcesCompat
 import com.vincent.rentreceipt.R
+import com.vincent.rentreceipt.model.CustomCharge
+import com.vincent.rentreceipt.model.defaultReceiptElements
 import com.vincent.rentreceipt.model.Bill
 import com.vincent.rentreceipt.model.ReceiptTemplate
 import com.vincent.rentreceipt.model.ReceiptTextElement
@@ -27,7 +29,7 @@ import java.time.YearMonth
 object ReceiptExporter {
     const val WIDTH = 3508
     const val HEIGHT = 1970
-    private const val CUSTOM_ROW_HEIGHT = 240f
+    private const val CUSTOM_ROW_HEIGHT = 300f
     private const val BLUE = 0xFF124997.toInt()
     private const val RED = 0xFF9A1824.toInt()
     private const val INK = 0xFF252525.toInt()
@@ -77,7 +79,10 @@ object ReceiptExporter {
         return bills.size
     }
 
-    fun heightFor(bill: Bill): Int = HEIGHT + (bill.customCharges.size * CUSTOM_ROW_HEIGHT).toInt()
+    private fun extraCharges(bill: Bill): List<CustomCharge> =
+        (if (bill.managementRate != null) listOf(CustomCharge("公共服务费", bill.managementAmount)) else emptyList()) + bill.customCharges
+
+    fun heightFor(bill: Bill): Int = HEIGHT + (extraCharges(bill).size * CUSTOM_ROW_HEIGHT).toInt()
 
     private fun createBitmap(
         context: Context,
@@ -134,27 +139,36 @@ object ReceiptExporter {
         val red = Paint(blue).apply { color = RED }
         val fangSong = Typeface.create("serif", Typeface.BOLD)
 
-        val customOffset = bill.customCharges.size * CUSTOM_ROW_HEIGHT
+        val charges = extraCharges(bill)
+        val customOffset = charges.size * CUSTOM_ROW_HEIGHT
         val left = 95f; val right = WIDTH - 95f; val top = 285f; val bottom = 1800f + customOffset
         val detailsBottom = 1400f + customOffset
-        val cols = floatArrayOf(left, 620f, 1100f, 1580f, 2060f, right)
+        val cols = floatArrayOf(left, 620f, 1100f, 1580f, 2060f, 2540f, right)
         val rows = buildList {
             add(500f); add(800f); add(1100f); add(1400f)
-            repeat(bill.customCharges.size) { add(1400f + (it + 1) * CUSTOM_ROW_HEIGHT) }
+            repeat(charges.size) { add(1400f + (it + 1) * CUSTOM_ROW_HEIGHT) }
             add(bottom)
         }.distinct()
         canvas.drawRect(left, top, right, bottom, border)
-        cols.drop(1).dropLast(1).forEach { x -> canvas.drawLine(x, top, x, detailsBottom, border) }
+        cols.drop(1).dropLast(1).forEach { x ->
+            // Amount-only rows share one blank area between the item and amount columns.
+            val lineBottom = if (x == 620f || x == 2540f) detailsBottom else 1100f
+            canvas.drawLine(x, top, x, lineBottom, border)
+        }
         rows.forEach { y -> canvas.drawLine(left, y, right, y, border) }
 
-        bill.customCharges.forEachIndexed { index, charge ->
+        charges.forEachIndexed { index, charge ->
             val rowTop = 1400f + index * CUSTOM_ROW_HEIGHT
             val rowBottom = rowTop + CUSTOM_ROW_HEIGHT
             drawCenteredText(canvas, charge.name, RectF(left, rowTop, 620f, rowBottom), body, DETAIL_LABEL_SIZE)
-            drawCenteredText(canvas, charge.amount, RectF(2060f, rowTop, right, rowBottom), blue, DETAIL_VALUE_SIZE)
+            drawCenteredText(canvas, charge.amount, RectF(2540f, rowTop, right, rowBottom), blue, DETAIL_VALUE_SIZE)
         }
 
-        template.elements.forEach { element ->
+        val missingRateElements = defaultReceiptElements().filter { default ->
+            default.id in setOf("headRate", "waterRate", "electricRate") && template.elements.none { it.id == default.id }
+        }
+        (template.elements + missingRateElements).forEach { element ->
+            if (element.id == "rentUsage") return@forEach
             if (element.id == "date") {
                 drawStyledDate(canvas, bill, element, body, timesNewRoman)
                 return@forEach
@@ -363,7 +377,8 @@ object ReceiptExporter {
             "Current" to (620f to 1100f),
             "Previous" to (1100f to 1580f),
             "Usage" to (1580f to 2060f),
-            "Amount" to (2060f to right)
+            "Rate" to (2060f to 2540f),
+            "Amount" to (2540f to right)
         )
         val row = when {
             id.startsWith("head") -> 285f to 500f
@@ -392,13 +407,13 @@ object ReceiptExporter {
     )
 
     private val detailLabelIds = setOf(
-        "headItem", "headCurrent", "headPrevious", "headUsage", "headAmount",
+        "headItem", "headCurrent", "headPrevious", "headUsage", "headRate", "headAmount",
         "waterLabel", "electricLabel", "rentLabel"
     )
 
     private val detailValueIds = setOf(
-        "waterCurrent", "waterPrevious", "waterUsage", "waterAmount",
-        "electricCurrent", "electricPrevious", "electricUsage", "electricAmount",
+        "waterCurrent", "waterPrevious", "waterUsage", "waterRate", "waterAmount",
+        "electricCurrent", "electricPrevious", "electricUsage", "electricRate", "electricAmount",
         "rentUsage", "rentAmount"
     )
 

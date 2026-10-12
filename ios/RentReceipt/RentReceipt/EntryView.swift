@@ -207,6 +207,9 @@ private struct RoomEntryCard: View {
                 draft.previousWater = previous.currentWater
                 draft.previousElectricity = previous.currentElectricity
             }
+            if store.draft(roomID: room.id, month: billMonth) == nil && !store.data.bills.contains(where: { $0.roomId == room.id && $0.month == billMonth }) {
+                draft.customCharges = room.recurringCharges
+            }
             recalculate()
         }
         .onChange(of: mergedRentMonths) { _ in changed() }

@@ -1,5 +1,7 @@
 # 租簿 RentReceipt
 
+> **⚠️ Android 用户请弃用 v1.0，并升级至 [最新版本](https://github.com/VincentGan260/RentReceipt/releases/latest)。** v1.0 与后续版本签名不同，无法直接覆盖安装。请先在旧版导出 ZIP 备份，再卸载 v1.0、安装新版并恢复备份；未备份前请勿卸载或清除数据。
+
 给出租屋房东用的记账 App：管理楼栋与房间、每月抄水电表、自动算房租水电账单、生成房租单图片/PDF、导出留档与备份。所有数据只存在你自己手机上，不联网、不上传。
 
 Android（Kotlin / Jetpack Compose）与 iOS（Swift / SwiftUI）两套实现，共用同一套数据模型和备份格式。
@@ -10,7 +12,7 @@ Android（Kotlin / Jetpack Compose）与 iOS（Swift / SwiftUI）两套实现，
 
 | 功能 | 说明 |
 | --- | --- |
-| 多楼栋管理 | 每栋楼独立的水电单价、表具上限；可随时新增、改名、切换 |
+| 多楼栋管理 | 每栋楼独立的水电单价、可选公共服务费单价、表具上限；可随时新增、改名、切换 |
 | 房间管理 | 房号、月租、押金（未收/已收/已退）、出租状态；房间可单独覆盖单价 |
 | 抄表出账 | 录入上月/本月水表电表读数，自动算用量与金额；**草稿自动保存**，退出不丢 |
 | 表具归零/换表 | 本期读数小于上期时，自动按表具上限折算；若是换表可手动填实际用量 |
@@ -29,7 +31,7 @@ Android（Kotlin / Jetpack Compose）与 iOS（Swift / SwiftUI）两套实现，
 
 ### Android
 
-环境要求：JDK 17、Android SDK（compileSdk 37 / minSdk 31）。
+环境要求：JDK 21、Android SDK（compileSdk 37 / minSdk 31）。
 
 ```bash
 # 1. 告诉 Gradle 你的 SDK 在哪
@@ -43,7 +45,7 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew test
 ```
 
-发布包（开启 R8 裁剪 + 资源压缩，体积从 70 MB 降到约 4 MB）：
+发布包（开启 R8 裁剪 + 资源压缩）：
 
 ```bash
 ./gradlew assembleRelease   # 产物：app/build/outputs/apk/release/app-release.apk
@@ -115,6 +117,8 @@ App 底部有三个 Tab：**概览**、**录入**、**房间**。
 
 **房间** 页 → **默认单价** → **修改**：
 
+公共服务费单价可留空，留空不收取；填写后按用电度数 × 公共服务费单价计算，金额四舍五入到元并计入合计。收据的单价列仅显示水、电单价，房租与公共服务费仅显示金额。
+
 - 水费（元/吨）、电费（元/度）
 - **表具归零上限**：水表/电表的最大读数。电表走满归零（例如 10000）时，填了上限才能算出正确用量；留空表示不做处理
 
@@ -170,17 +174,21 @@ App 底部有三个 Tab：**概览**、**录入**、**房间**。
 
 ## 数据结构与备份格式
 
-备份 ZIP 采用 `format = rent-receipt`、当前 `version = 8`，内含以下 CSV：
+备份 ZIP 采用 `format = rent-receipt`、Android 与 iOS 当前 `version = 10`，内含以下 CSV：
 
 | 文件 | 内容 |
 | --- | --- |
 | `manifest.csv` | 格式标识与版本号 |
-| `buildings.csv` | 楼栋及默认单价、表具上限 |
+| `buildings.csv` | 楼栋及默认水电单价、可选公共服务费单价、表具上限 |
 | `rooms.csv` | 房间、月租、自定义单价、押金状态 |
 | `bills.csv` | 历史账单（读数、用量、各项金额、是否已收） |
 | `receipt_templates.csv` | 房租单排版模板（元素内容、坐标、字号、对齐、颜色） |
+| `bill_charges.csv` | 账单其他收费项 |
+| `room_charges.csv` | 房间每月固定费用（版本 10） |
 
-Android 与 iOS 使用同一份格式，可跨平台互相导入。
+Android 与 iOS 均支持房间自定义公共服务费及每月固定费用，共用版本 10 备份格式并兼容版本 1–9。恢复旧备份时，缺少的新设置使用默认值，并保留历史账单金额。
+
+iOS 升级时，旧本地 JSON 缺少公共服务费字段会使用默认值，不会因此丢失原有账单。
 
 Android 端运行时数据保存在 `SharedPreferences`（`rent_receipt_data`），以 JSON 序列化。
 
@@ -228,6 +236,14 @@ Android 端运行时数据保存在 `SharedPreferences`（`rent_receipt_data`）
 ---
 
 ## 更新日志
+
+### v1.2（2026-10-12）
+
+- 新增公共服务费：按用电量计算，支持楼栋默认单价与房间独立单价（Android / iOS）。
+- 新增房间每月固定收费，出账时自动带入（Android / iOS）。
+- 房租单增加水电单价与公共服务费展示，优化排版。
+- 备份格式升级至 v10，兼容 v1–v9 旧备份并保留历史账单金额。
+- Android 更新柔光玻璃界面、悬浮搜索与字体布局，新增关于及开源许可说明。
 
 ### v1.1（2026-10-03）
 
@@ -285,3 +301,7 @@ apksigner verify --print-certs 当前正式版本.apk
 将输出中的 `certificate SHA-256 digest` 保存为仓库的 Actions Secret `SIGNING_CERT_SHA256`。仓库 Settings → Secrets and variables → Actions 中还需配置 `KEYSTORE_BASE64`、`KEYSTORE_PASSWORD`、`KEY_ALIAS` 和 `KEY_PASSWORD`。发布流程会核对指纹，任何密钥变更都会阻止发布，需人工确认原因。
 
 GitHub Secrets 不能直接读取取回原值，不可作为唯一备份。密钥和密码不要提交到仓库，也不要发到聊天中。
+
+### Android 柔光玻璃组件来源
+
+复用 HyperModifier 的 GPL-3.0 控件，来源版本、修改记录和分发要求见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。发布 APK 时需同时提供该版本完整对应源码及构建脚本。

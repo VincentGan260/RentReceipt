@@ -75,7 +75,9 @@ class RentRepository(context: Context) {
             rooms[existing?.id ?: room.id] = if (existing == null) room else room.copy(
                 id = existing.id,
                 customWaterRate = existing.customWaterRate,
-                customElectricityRate = existing.customElectricityRate
+                customElectricityRate = existing.customElectricityRate,
+                customManagementRate = existing.customManagementRate,
+                recurringCharges = existing.recurringCharges
             )
         }
         update(_data.value.copy(rooms = rooms.values.sortedWith { left, right -> roomNumberComparator.compare(left.number, right.number) }))
@@ -213,6 +215,7 @@ private fun AppData.toJson() = JSONObject().apply {
 private fun Building.toJson() = JSONObject().apply {
     put("id", id); put("name", name)
     put("water", settings.defaultWaterRate); put("electricity", settings.defaultElectricityRate)
+    put("managementRate", settings.defaultManagementRate ?: JSONObject.NULL)
     put("waterMeterMax", settings.defaultWaterMeterMax ?: JSONObject.NULL)
     put("electricityMeterMax", settings.defaultElectricityMeterMax ?: JSONObject.NULL)
     put("receiptTemplate", receiptTemplate?.toJson() ?: JSONObject.NULL)
@@ -233,6 +236,8 @@ private fun Room.toJson() = JSONObject().apply {
     put("id", id); put("buildingId", buildingId); put("number", number); put("rent", rent)
     put("water", customWaterRate ?: JSONObject.NULL)
     put("electricity", customElectricityRate ?: JSONObject.NULL)
+    put("managementRate", customManagementRate ?: JSONObject.NULL)
+    put("recurringCharges", recurringCharges.toJson())
     put("occupied", occupied); put("depositAmount", depositAmount)
     put("depositStatus", depositStatus.name)
     put("depositCollectedDate", depositCollectedDate ?: JSONObject.NULL)
@@ -247,6 +252,7 @@ private fun Bill.toJson() = JSONObject().apply {
     put("waterRate", waterRate); put("waterAmount", waterAmount)
     put("previousElectricity", previousElectricity); put("currentElectricity", currentElectricity)
     put("electricityRate", electricityRate); put("electricityAmount", electricityAmount)
+    put("managementRate", managementRate ?: JSONObject.NULL); put("managementAmount", managementAmount)
     put("rent", rent); put("total", total)
     put("rentOnly", rentOnly)
     put("paid", paid); put("paidDate", paidDate ?: JSONObject.NULL)
@@ -307,7 +313,8 @@ private fun JSONObject.toBuilding() = Building(
         optString("water", "5.00"),
         optString("electricity", "1.30"),
         nullableString("waterMeterMax"),
-        nullableString("electricityMeterMax") ?: "10000"
+        nullableString("electricityMeterMax") ?: "10000",
+        nullableString("managementRate")
     ),
     receiptTemplate = optJSONArray("receiptTemplate")?.toReceiptTemplate()
 )
@@ -336,7 +343,9 @@ private fun JSONObject.toRoom(fallbackBuildingId: String) = Room(
     depositCollectedDate = nullableString("depositCollectedDate"),
     depositRefundedDate = nullableString("depositRefundedDate"),
     customWaterMeterMax = nullableString("waterMeterMax"),
-    customElectricityMeterMax = nullableString("electricityMeterMax")
+    customElectricityMeterMax = nullableString("electricityMeterMax"),
+    customManagementRate = nullableString("managementRate"),
+    recurringCharges = optJSONArray("recurringCharges")?.toCustomCharges().orEmpty()
 )
 
 private fun JSONObject.toBill(fallbackBuildingId: String) = Bill(
@@ -352,5 +361,7 @@ private fun JSONObject.toBill(fallbackBuildingId: String) = Bill(
     paid = optBoolean("paid", false), paidDate = nullableString("paidDate"),
     waterUsage = optString("waterUsage", ""),
     electricityUsage = optString("electricityUsage", ""),
+    managementRate = nullableString("managementRate"),
+    managementAmount = optString("managementAmount", "0"),
     customCharges = optJSONArray("customCharges")?.toCustomCharges().orEmpty()
 )

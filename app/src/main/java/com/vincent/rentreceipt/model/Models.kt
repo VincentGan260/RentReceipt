@@ -12,7 +12,8 @@ data class PricingSettings(
     val defaultWaterRate: String = "5.00",
     val defaultElectricityRate: String = "1.30",
     val defaultWaterMeterMax: String? = null,
-    val defaultElectricityMeterMax: String? = "10000"
+    val defaultElectricityMeterMax: String? = "10000",
+    val defaultManagementRate: String? = null
 )
 
 data class ReceiptTextElement(
@@ -51,7 +52,9 @@ data class Room(
     val depositCollectedDate: String? = null,
     val depositRefundedDate: String? = null,
     val customWaterMeterMax: String? = null,
-    val customElectricityMeterMax: String? = null
+    val customElectricityMeterMax: String? = null,
+    val customManagementRate: String? = null,
+    val recurringCharges: List<CustomCharge> = emptyList()
 )
 
 data class Bill(
@@ -76,7 +79,9 @@ data class Bill(
     val paidDate: String? = null,
     val waterUsage: String = "",
     val electricityUsage: String = "",
-    val customCharges: List<CustomCharge> = emptyList()
+    val customCharges: List<CustomCharge> = emptyList(),
+    val managementRate: String? = null,
+    val managementAmount: String = "0"
 )
 
 data class CustomCharge(
@@ -105,6 +110,9 @@ fun defaultReceiptElements(): List<ReceiptTextElement> = listOf(
     ReceiptTextElement("headCurrent", "本  月", 777f, 435f, 66f, true),
     ReceiptTextElement("headPrevious", "上  月", 1172f, 435f, 66f, true),
     ReceiptTextElement("headUsage", "实  用", 1567f, 435f, 66f, true),
+    ReceiptTextElement("headRate", "单  价", 2300f, 435f, 66f, true),
+    ReceiptTextElement("waterRate", "{waterRate}", 2300f, 720f, 136f, true, "blue"),
+    ReceiptTextElement("electricRate", "{electricityRate}", 2300f, 1020f, 136f, true, "blue"),
     ReceiptTextElement("headAmount", "金      额", 2799f, 435f, 66f, true),
     ReceiptTextElement("waterLabel", "水费（立方米）", 337f, 700f, 66f, true),
     ReceiptTextElement("waterCurrent", "{currentWater}", 777f, 720f, 136f, true, "blue"),
@@ -117,7 +125,6 @@ fun defaultReceiptElements(): List<ReceiptTextElement> = listOf(
     ReceiptTextElement("electricUsage", "{electricityUsage}", 1567f, 1020f, 136f, true, "blue"),
     ReceiptTextElement("electricAmount", "{electricityAmount}", 2799f, 1025f, 136f, true, "blue"),
     ReceiptTextElement("rentLabel", "房  租", 337f, 1300f, 66f, true),
-    ReceiptTextElement("rentUsage", "{rent}", 1567f, 1325f, 136f, true, "blue"),
     ReceiptTextElement("rentAmount", "{rent}", 2799f, 1325f, 136f, true, "blue"),
     ReceiptTextElement("totalLabel", "合  计（大写）", 155f, 1635f, 64f),
     ReceiptTextElement("totalUpper", "{totalUpper}", 720f, 1695f, 140f, color = "blue"),
@@ -148,7 +155,8 @@ data class BillCalculation(
     val electricityUsage: BigDecimal,
     val waterAmount: BigDecimal,
     val electricityAmount: BigDecimal,
-    val total: BigDecimal
+    val total: BigDecimal,
+    val managementAmount: BigDecimal = BigDecimal.ZERO
 )
 
 fun calculateBill(room: Room, settings: PricingSettings, draft: BillDraft): BillCalculation {
@@ -198,8 +206,11 @@ fun calculateBill(room: Room, settings: PricingSettings, draft: BillDraft): Bill
     require(room.rent.toDecimal() >= BigDecimal.ZERO) { "房租不能为负数" }
     val waterAmount = (waterUsage * waterRate).whole()
     val electricityAmount = (electricityUsage * electricityRate).whole()
-    val total = room.rent.toDecimal() + waterAmount + electricityAmount + customChargeTotal
-    return BillCalculation(waterUsage.whole(), electricityUsage.whole(), waterAmount, electricityAmount, total.whole())
+    val managementRate = (room.customManagementRate ?: settings.defaultManagementRate)?.takeIf(String::isNotBlank)?.toDecimal()
+    require(managementRate == null || managementRate >= BigDecimal.ZERO) { "公共服务费单价不能为负数" }
+    val managementAmount = (electricityUsage * (managementRate ?: BigDecimal.ZERO)).whole()
+    val total = room.rent.toDecimal() + waterAmount + electricityAmount + managementAmount + customChargeTotal
+    return BillCalculation(waterUsage.whole(), electricityUsage.whole(), waterAmount, electricityAmount, total.whole(), managementAmount)
 }
 
 fun createBill(room: Room, settings: PricingSettings, draft: BillDraft): Bill {
@@ -225,6 +236,8 @@ fun createBill(room: Room, settings: PricingSettings, draft: BillDraft): Bill {
         rentOnly = draft.rentOnly,
         waterUsage = value.waterUsage.wholeText(),
         electricityUsage = value.electricityUsage.wholeText(),
+        managementRate = (room.customManagementRate ?: settings.defaultManagementRate)?.takeIf(String::isNotBlank)?.normalizedDecimal(),
+        managementAmount = value.managementAmount.wholeText(),
         customCharges = draft.customCharges.map {
             CustomCharge(it.name.trim(), it.amount.toDecimal().wholeText())
         }
@@ -288,3 +301,6 @@ fun String.normalizedDecimal(): String = toDecimal().stripTrailingZeros().toPlai
 fun BigDecimal.whole(): BigDecimal = setScale(0, RoundingMode.HALF_UP)
 fun BigDecimal.wholeText(): String = whole().toPlainString()
 fun String.wholeText(): String = toDecimal().wholeText()
+
+fun Room.chargesForBill(savedDraft: BillDraft?, existingBill: Bill?): List<CustomCharge> =
+    savedDraft?.customCharges ?: existingBill?.customCharges ?: recurringCharges

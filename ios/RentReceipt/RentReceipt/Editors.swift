@@ -36,11 +36,29 @@ struct RoomEditorView: View {
                 Section {
                     OptionalNumberField("自定义水价", value: $room.customWaterRate)
                     OptionalNumberField("自定义电价", value: $room.customElectricityRate)
-                } header: { Text("房间独立单价") } footer: { Text("留空则使用当前楼栋的默认价格。") }
+                    OptionalNumberField("自定义公共服务费（元）", value: $room.customManagementRate)
+                } header: { Text("房间独立单价") }
+                Section("每月固定费用") {
+                    ForEach($room.recurringCharges) { $charge in
+                        VStack(alignment: .leading, spacing: 10) {
+                            TextField("费用名称", text: $charge.name)
+                            HStack {
+                                TextField("金额（元）", text: $charge.amount).keyboardType(.decimalPad)
+                                Button(role: .destructive) {
+                                    room.recurringCharges.removeAll { $0.id == charge.id }
+                                } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.borderless).accessibilityLabel("删除费用")
+                            }
+                        }
+                    }
+                    Button { room.recurringCharges.append(CustomCharge()) } label: {
+                        Label("添加费用", systemImage: "plus")
+                    }
+                }
                 Section {
                     OptionalNumberField("水表上限", value: $room.customWaterMeterMax)
                     OptionalNumberField("电表上限", value: $room.customElectricityMeterMax)
-                } header: { Text("表数归零上限") } footer: { Text("用于表数从最大值归零时计算用量；留空使用楼栋设置。") }
+                } header: { Text("表数归零上限") }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
                 if original != nil {
                     Section { Button("删除房间", role: .destructive) { confirmDelete = true } }
@@ -63,8 +81,7 @@ struct RoomEditorView: View {
     }
 
     private func save() {
-        guard !room.number.trimmingCharacters(in: .whitespaces).isEmpty,
-              Decimal(string: room.rent) != nil, Decimal(string: room.depositAmount) != nil else {
+        guard canSave else {
             error = "请填写有效的房号、月租和押金"; return
         }
         room.number = room.number.trimmingCharacters(in: .whitespaces)
@@ -78,17 +95,24 @@ struct RoomEditorView: View {
 
     private var canSave: Bool {
         !room.number.trimmingCharacters(in: .whitespaces).isEmpty &&
-        Decimal(string: room.rent) != nil && Decimal(string: room.depositAmount) != nil
+        Decimal(string: room.rent) != nil && Decimal(string: room.depositAmount) != nil &&
+        [room.customWaterRate, room.customElectricityRate, room.customManagementRate].allSatisfy { text in
+            guard let text, !text.isEmpty else { return true }
+            return (Decimal(string: text) ?? -1) >= 0
+        } && room.recurringCharges.allSatisfy { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && (Decimal(string: $0.amount) ?? -1) >= 0 }
     }
 }
 
 private struct OptionalNumberField: View {
     let title: String
     @Binding var value: String?
-    init(_ title: String, value: Binding<String?>) { self.title = title; _value = value }
+    var placeholder: String
+    init(_ title: String, value: Binding<String?>, placeholder: String = "使用默认值") {
+        self.title = title; _value = value; self.placeholder = placeholder
+    }
     var body: some View {
         LabeledContent(title) {
-            TextField("使用默认值", text: Binding(get: { value ?? "" }, set: { value = $0.isEmpty ? nil : $0 }))
+            TextField(placeholder, text: Binding(get: { value ?? "" }, set: { value = $0.isEmpty ? nil : $0 }))
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
         }
@@ -104,13 +128,18 @@ struct PricingSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("默认单价") {
+                Section {
                     LabeledContent("水价（元/吨）") {
                         TextField("必填", text: $settings.defaultWaterRate).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                     }
                     LabeledContent("电价（元/度）") {
                         TextField("必填", text: $settings.defaultElectricityRate).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                     }
+                    OptionalNumberField("公共服务费（元）", value: $settings.defaultManagementRate, placeholder: "留空不收取")
+                } header: {
+                    Text("默认单价")
+                } footer: {
+                    Text("公共服务费 = 用电度数 × 此单价；留空不收取，金额四舍五入到元。")
                 }
                 Section("表数归零上限") {
                     OptionalNumberField("水表上限", value: $settings.defaultWaterMeterMax)
@@ -126,13 +155,21 @@ struct PricingSettingsView: View {
         }
     }
     private func save() {
-        guard Decimal(string: settings.defaultWaterRate) != nil, Decimal(string: settings.defaultElectricityRate) != nil else {
-            error = "请填写有效的水电单价"; return
+        guard canSave else {
+            error = "请填写有效的单价，公共服务费不能为负数"; return
         }
         store.updateSettings(settings); dismiss()
     }
     private var canSave: Bool {
-        Decimal(string: settings.defaultWaterRate) != nil && Decimal(string: settings.defaultElectricityRate) != nil
+        Decimal(string: settings.defaultWaterRate) != nil && Decimal(string: settings.defaultElectricityRate) != nil && validManagementRate
+    }
+}
+
+private extension PricingSettingsView {
+    var validManagementRate: Bool {
+        guard let text = settings.defaultManagementRate, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
+        guard let value = Decimal(string: text) else { return false }
+        return value >= 0
     }
 }
 

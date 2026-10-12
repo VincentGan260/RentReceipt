@@ -9,9 +9,9 @@ enum BackupError: LocalizedError {
 enum BackupArchive {
     static func export(_ appData: AppData) throws -> URL {
         var files: [String: Data] = [:]
-        files["manifest.csv"] = csv([["format", "version"], ["rent-receipt", "8"]])
-        files["buildings.csv"] = csv([["id", "name", "default_water_rate", "default_electricity_rate", "default_water_meter_max", "default_electricity_meter_max"]] + appData.buildings.map {
-            [$0.id, $0.name, $0.settings.defaultWaterRate, $0.settings.defaultElectricityRate, $0.settings.defaultWaterMeterMax ?? "", $0.settings.defaultElectricityMeterMax ?? ""]
+        files["manifest.csv"] = csv([["format", "version"], ["rent-receipt", "10"]])
+        files["buildings.csv"] = csv([["id", "name", "default_water_rate", "default_electricity_rate", "default_water_meter_max", "default_electricity_meter_max", "default_management_rate"]] + appData.buildings.map {
+            [$0.id, $0.name, $0.settings.defaultWaterRate, $0.settings.defaultElectricityRate, $0.settings.defaultWaterMeterMax ?? "", $0.settings.defaultElectricityMeterMax ?? "", $0.settings.defaultManagementRate ?? ""]
         })
         var templateRows = [["scope", "building_id", "id", "content", "x", "y", "font_size", "centered", "color"]]
         templateRows += appData.receiptTemplate.elements.map { templateRow($0, "global", "") }
@@ -19,12 +19,17 @@ enum BackupArchive {
             templateRows += (building.receiptTemplate?.elements ?? []).map { templateRow($0, "building", building.id) }
         }
         files["receipt_templates.csv"] = csv(templateRows)
-        files["rooms.csv"] = csv([["id", "building_id", "number", "rent", "custom_water_rate", "custom_electricity_rate", "occupied", "deposit_amount", "deposit_status", "deposit_collected_date", "deposit_refunded_date", "custom_water_meter_max", "custom_electricity_meter_max"]] + appData.rooms.map {
-            [$0.id, $0.buildingId, $0.number, $0.rent, $0.customWaterRate ?? "", $0.customElectricityRate ?? "", String($0.occupied), $0.depositAmount, $0.depositStatus.rawValue, $0.depositCollectedDate ?? "", $0.depositRefundedDate ?? "", $0.customWaterMeterMax ?? "", $0.customElectricityMeterMax ?? ""]
+        files["rooms.csv"] = csv([["id", "building_id", "number", "rent", "custom_water_rate", "custom_electricity_rate", "occupied", "deposit_amount", "deposit_status", "deposit_collected_date", "deposit_refunded_date", "custom_water_meter_max", "custom_electricity_meter_max", "custom_management_rate"]] + appData.rooms.map {
+            [$0.id, $0.buildingId, $0.number, $0.rent, $0.customWaterRate ?? "", $0.customElectricityRate ?? "", String($0.occupied), $0.depositAmount, $0.depositStatus.rawValue, $0.depositCollectedDate ?? "", $0.depositRefundedDate ?? "", $0.customWaterMeterMax ?? "", $0.customElectricityMeterMax ?? "", $0.customManagementRate ?? ""]
         })
-        files["bills.csv"] = csv([["id", "building_id", "room_id", "room_number", "month", "created_date", "previous_water", "current_water", "water_rate", "water_amount", "previous_electricity", "current_electricity", "electricity_rate", "electricity_amount", "rent", "total", "paid", "paid_date", "water_usage", "electricity_usage", "rent_only"]] + appData.bills.map {
-            [$0.id, $0.buildingId, $0.roomId, $0.roomNumber, $0.month, $0.createdDate, $0.previousWater, $0.currentWater, $0.waterRate, $0.waterAmount, $0.previousElectricity, $0.currentElectricity, $0.electricityRate, $0.electricityAmount, $0.rent, $0.total, String($0.paid), $0.paidDate ?? "", $0.waterUsage, $0.electricityUsage, String($0.rentOnly)]
+        files["bills.csv"] = csv([["id", "building_id", "room_id", "room_number", "month", "created_date", "previous_water", "current_water", "water_rate", "water_amount", "previous_electricity", "current_electricity", "electricity_rate", "electricity_amount", "rent", "total", "paid", "paid_date", "water_usage", "electricity_usage", "rent_only", "management_rate", "management_amount"]] + appData.bills.map {
+            [$0.id, $0.buildingId, $0.roomId, $0.roomNumber, $0.month, $0.createdDate, $0.previousWater, $0.currentWater, $0.waterRate, $0.waterAmount, $0.previousElectricity, $0.currentElectricity, $0.electricityRate, $0.electricityAmount, $0.rent, $0.total, String($0.paid), $0.paidDate ?? "", $0.waterUsage, $0.electricityUsage, String($0.rentOnly), $0.managementRate ?? "", $0.managementAmount]
         })
+        var roomChargeRows = [["room_id", "item_index", "name", "amount"]]
+        for room in appData.rooms {
+            roomChargeRows += room.recurringCharges.enumerated().map { [room.id, String($0.offset), $0.element.name, $0.element.amount] }
+        }
+        files["room_charges.csv"] = csv(roomChargeRows)
         var chargeRows = [["bill_id", "item_index", "name", "amount"]]
         for bill in appData.bills {
             chargeRows += bill.customCharges.enumerated().map { [bill.id, String($0.offset), $0.element.name, $0.element.amount] }
@@ -49,7 +54,7 @@ enum BackupArchive {
             throw BackupError.message("备份格式不受支持")
         }
         let version = Int(manifestRecord.optional("version") ?? "") ?? 0
-        guard (1...8).contains(version) else { throw BackupError.message("备份版本不受支持") }
+        guard (1...10).contains(version) else { throw BackupError.message("备份版本不受支持") }
         if version == 1 { return try importVersionOne(files) }
 
         let buildingTable = try table("buildings.csv")
@@ -58,13 +63,14 @@ enum BackupArchive {
                 defaultWaterRate: try row.required("default_water_rate"),
                 defaultElectricityRate: try row.required("default_electricity_rate"),
                 defaultWaterMeterMax: row.optional("default_water_meter_max"),
-                defaultElectricityMeterMax: row.optional("default_electricity_meter_max") ?? "10000"))
+                defaultElectricityMeterMax: row.optional("default_electricity_meter_max") ?? "10000",
+                defaultManagementRate: version >= 9 ? row.optional("default_management_rate") : nil))
         }
         guard !buildings.isEmpty else { throw BackupError.message("备份中没有楼栋") }
         let buildingIDs = Set(buildings.map(\.id))
 
         let roomTable = try table("rooms.csv")
-        let rooms = try roomTable.records.map { row in
+        var rooms = try roomTable.records.map { row in
             let buildingID = try row.required("building_id")
             guard buildingIDs.contains(buildingID) else { throw BackupError.message("房间引用了不存在的楼栋") }
             return Room(id: try row.required("id"), number: try row.required("number"), rent: try row.required("rent"),
@@ -72,7 +78,24 @@ enum BackupArchive {
                         buildingId: buildingID, occupied: row.bool("occupied"), depositAmount: row.optional("deposit_amount") ?? "0",
                         depositStatus: DepositStatus(rawValue: row.optional("deposit_status") ?? "NOT_COLLECTED") ?? .notCollected,
                         depositCollectedDate: row.optional("deposit_collected_date"), depositRefundedDate: row.optional("deposit_refunded_date"),
-                        customWaterMeterMax: row.optional("custom_water_meter_max"), customElectricityMeterMax: row.optional("custom_electricity_meter_max"))
+                        customWaterMeterMax: row.optional("custom_water_meter_max"), customElectricityMeterMax: row.optional("custom_electricity_meter_max"),
+                        customManagementRate: version >= 10 ? row.optional("custom_management_rate") : nil)
+        }
+
+        if version >= 10 {
+            let charges = try table("room_charges.csv")
+            let roomIDs = Set(rooms.map(\.id))
+            for row in charges.records {
+                guard roomIDs.contains(try row.required("room_id")) else { throw BackupError.message("固定费用引用了不存在的房间") }
+                guard let index = Int(try row.required("item_index")), index >= 0 else { throw BackupError.message("固定费用顺序格式错误") }
+                guard try BillCalculator.decimal(row.required("amount")) >= 0 else { throw BackupError.message("固定费用金额不能为负数") }
+            }
+            let grouped = Dictionary(grouping: charges.records, by: { $0.optional("room_id") ?? "" })
+            for index in rooms.indices {
+                rooms[index].recurringCharges = try (grouped[rooms[index].id] ?? []).sorted {
+                    (Int($0.optional("item_index") ?? "0") ?? 0) < (Int($1.optional("item_index") ?? "0") ?? 0)
+                }.map { CustomCharge(name: try $0.required("name"), amount: try $0.required("amount")) }
+            }
         }
 
         let billTable = try table("bills.csv")
@@ -84,7 +107,9 @@ enum BackupArchive {
                  currentElectricity: try row.required("current_electricity"), electricityRate: try row.required("electricity_rate"),
                  electricityAmount: try row.required("electricity_amount"), rent: try row.required("rent"), total: try row.required("total"),
                  rentOnly: row.bool("rent_only"), paid: row.bool("paid"), paidDate: row.optional("paid_date"),
-                 waterUsage: row.optional("water_usage") ?? "", electricityUsage: row.optional("electricity_usage") ?? "")
+                 waterUsage: row.optional("water_usage") ?? "", electricityUsage: row.optional("electricity_usage") ?? "",
+                 managementRate: version >= 9 ? row.optional("management_rate") : nil,
+                 managementAmount: version >= 9 ? try row.required("management_amount") : "0")
         }
         if let chargeData = files["bill_charges.csv"], let chargeText = String(data: chargeData, encoding: .utf8) {
             let chargeTable = try CSVTable(chargeText)
