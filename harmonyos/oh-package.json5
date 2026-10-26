@@ -1,0 +1,8 @@
+{
+  "name": "rentreceipt",
+  "version": "1.2.0",
+  "description": "租簿原生鸿蒙客户端",
+  "license": "GPL-3.0",
+  "dependencies": {},
+  "modelVersion": "6.0.0"
+}

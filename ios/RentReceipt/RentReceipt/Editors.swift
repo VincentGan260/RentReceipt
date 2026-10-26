@@ -1,5 +1,7 @@
 import SwiftUI
 
+private func editorDecimal(_ text: String) -> Decimal? { try? BillCalculator.decimal(text) }
+
 struct RoomEditorView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -87,19 +89,25 @@ struct RoomEditorView: View {
         room.number = room.number.trimmingCharacters(in: .whitespaces)
         room.buildingId = original?.buildingId ?? store.selectedBuildingID
         let today = Date.isoDayFormatter.string(from: Date())
-        if room.depositStatus == .collected && room.depositCollectedDate == nil { room.depositCollectedDate = today }
-        if room.depositStatus == .refunded && room.depositRefundedDate == nil { room.depositRefundedDate = today }
+        if room.depositStatus != original?.depositStatus {
+            if room.depositStatus == .collected { room.depositCollectedDate = today }
+            if room.depositStatus == .refunded { room.depositRefundedDate = today }
+        }
         store.upsert(room)
         dismiss()
     }
 
     private var canSave: Bool {
         !room.number.trimmingCharacters(in: .whitespaces).isEmpty &&
-        Decimal(string: room.rent) != nil && Decimal(string: room.depositAmount) != nil &&
+        (editorDecimal(room.rent) ?? -1) >= 0 && (editorDecimal(room.depositAmount) ?? -1) >= 0 &&
+        [room.customWaterMeterMax, room.customElectricityMeterMax].allSatisfy { text in
+            guard let text, !text.isEmpty else { return true }
+            return (editorDecimal(text) ?? 0) > 0
+        } &&
         [room.customWaterRate, room.customElectricityRate, room.customManagementRate].allSatisfy { text in
             guard let text, !text.isEmpty else { return true }
-            return (Decimal(string: text) ?? -1) >= 0
-        } && room.recurringCharges.allSatisfy { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && (Decimal(string: $0.amount) ?? -1) >= 0 }
+            return (editorDecimal(text) ?? -1) >= 0
+        } && room.recurringCharges.allSatisfy { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && (editorDecimal($0.amount) ?? -1) >= 0 }
     }
 }
 
@@ -161,14 +169,19 @@ struct PricingSettingsView: View {
         store.updateSettings(settings); dismiss()
     }
     private var canSave: Bool {
-        Decimal(string: settings.defaultWaterRate) != nil && Decimal(string: settings.defaultElectricityRate) != nil && validManagementRate
+        (editorDecimal(settings.defaultWaterRate) ?? -1) >= 0 &&
+        (editorDecimal(settings.defaultElectricityRate) ?? -1) >= 0 && validManagementRate &&
+        [settings.defaultWaterMeterMax, settings.defaultElectricityMeterMax].allSatisfy { text in
+            guard let text, !text.isEmpty else { return true }
+            return (editorDecimal(text) ?? 0) > 0
+        }
     }
 }
 
 private extension PricingSettingsView {
     var validManagementRate: Bool {
         guard let text = settings.defaultManagementRate, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return true }
-        guard let value = Decimal(string: text) else { return false }
+        guard let value = editorDecimal(text) else { return false }
         return value >= 0
     }
 }

@@ -1,0 +1,7 @@
+{
+  "name": "entry",
+  "version": "1.2.0",
+  "description": "租簿主模块",
+  "dependencies": {},
+  "modelVersion": "6.0.0"
+}

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct EntryView: View {
+    var search: String = ""
     @EnvironmentObject private var store: AppStore
     @State private var readingMonth = MonthValue.current
     @State private var mergedRentMonths: [MonthValue] = []
@@ -10,6 +11,11 @@ struct EntryView: View {
     @State private var exportItems: [URL] = []
     @State private var showingShare = false
     @State private var exporting = false
+
+    private var visibleRooms: [Room] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.rooms().filter { query.isEmpty || $0.number.localizedCaseInsensitiveContains(query) }
+    }
 
     var body: some View {
         ZStack {
@@ -23,11 +29,10 @@ struct EntryView: View {
                                     .frame(minWidth: 44, minHeight: 44)
                                     .accessibilityLabel("上一个月")
                                 Spacer()
-                                VStack(spacing: 3) {
-                                    Text("\(readingMonth.year) 年 \(readingMonth.month) 月抄表").font(.title2.bold())
-                                    Text("生成 \(readingMonth.next.rentTitle)").font(.caption).foregroundStyle(.secondary)
-                                    Text("收据日期：\(readingMonth.next.id)-01").font(.caption).foregroundStyle(.secondary)
-                                }
+                                Text("\(readingMonth.next.year)年\(readingMonth.next.month)月开单")
+                                    .font(.title2.bold())
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
                                 Spacer()
                                 Button { selectReadingMonth(readingMonth.next) } label: { Image(systemName: "chevron.right") }
                                     .frame(minWidth: 44, minHeight: 44)
@@ -43,8 +48,10 @@ struct EntryView: View {
 
                     if store.rooms().isEmpty {
                         EmptyState(icon: "door.left.hand.open", title: "尚无房间", detail: "请先到“房间”页面新增房间。")
+                    } else if visibleRooms.isEmpty {
+                        EmptyState(icon: "magnifyingglass", title: "没有找到房间", detail: "请检查房间号后重试。")
                     } else {
-                        ForEach(store.rooms()) { room in
+                        ForEach(visibleRooms) { room in
                             RoomEntryCard(
                                 room: room,
                                 readingMonth: readingMonth,

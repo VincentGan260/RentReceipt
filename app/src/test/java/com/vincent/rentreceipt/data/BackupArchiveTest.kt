@@ -19,6 +19,16 @@ import java.util.zip.ZipOutputStream
 
 class BackupArchiveTest {
     @Test
+    fun roundTripPreservesExplicitlyBlankElectricityMeterLimit() {
+        val original = AppData(buildings = listOf(Building(
+            id = "building-1", name = "东楼",
+            settings = PricingSettings(defaultElectricityMeterMax = null)
+        )))
+        val bytes = ByteArrayOutputStream().also { BackupArchive.export(original, it) }.toByteArray()
+        assertEquals(original, BackupArchive.import(ByteArrayInputStream(bytes)))
+    }
+
+    @Test
     fun roundTripsSettingsRoomsAndBills() {
         val globalTemplate = ReceiptTemplate(listOf(ReceiptTextElement("title", "全局标题", 100f, 200f, 60f)))
         val buildingTemplate = ReceiptTemplate(listOf(ReceiptTextElement("title", "东楼标题", 110f, 210f, 62f)))

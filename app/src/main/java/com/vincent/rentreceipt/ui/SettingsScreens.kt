@@ -79,10 +79,10 @@ fun SettingsScreen(settings: PricingSettings, onBack: () -> Unit, onSave: (Prici
         item {
             Button(onClick = {
                 if (
-                    water.toBigDecimalOrNull() == null || electricity.toBigDecimalOrNull() == null ||
+                    (water.toBigDecimalOrNull()?.signum() ?: -1) < 0 || (electricity.toBigDecimalOrNull()?.signum() ?: -1) < 0 ||
                     (management.isNotBlank() && (management.toBigDecimalOrNull() == null || management.toBigDecimal().signum() < 0)) ||
-                    (waterMeterMax.isNotBlank() && waterMeterMax.toBigDecimalOrNull() == null) ||
-                    (electricityMeterMax.isNotBlank() && electricityMeterMax.toBigDecimalOrNull() == null)
+                    (waterMeterMax.isNotBlank() && (waterMeterMax.toBigDecimalOrNull()?.signum() ?: 0) <= 0) ||
+                    (electricityMeterMax.isNotBlank() && (electricityMeterMax.toBigDecimalOrNull()?.signum() ?: 0) <= 0)
                 ) error = "请输入有效的单价和表具上限"
                 else onSave(
                     PricingSettings(
@@ -134,13 +134,13 @@ fun RoomEditorScreen(
     val saveRoom = {
         if (
             recurringCharges.any { it.name.isBlank() || (it.amount.toBigDecimalOrNull()?.signum() ?: -1) < 0 } ||
-            number.isBlank() || rent.toBigDecimalOrNull() == null ||
-            depositAmount.toBigDecimalOrNull() == null ||
+            number.isBlank() || (rent.toBigDecimalOrNull()?.signum() ?: -1) < 0 ||
+            (depositAmount.toBigDecimalOrNull()?.signum() ?: -1) < 0 ||
             (customWater && (water.toBigDecimalOrNull()?.signum() ?: -1) < 0) ||
             (customElectricity && (electricity.toBigDecimalOrNull()?.signum() ?: -1) < 0) ||
             (customManagement && (management.toBigDecimalOrNull()?.signum() ?: -1) < 0) ||
-            (customWaterMeterMax && waterMeterMax.toBigDecimalOrNull() == null) ||
-            (customElectricityMeterMax && electricityMeterMax.toBigDecimalOrNull() == null)
+            (customWaterMeterMax && (waterMeterMax.toBigDecimalOrNull()?.signum() ?: 0) <= 0) ||
+            (customElectricityMeterMax && (electricityMeterMax.toBigDecimalOrNull()?.signum() ?: 0) <= 0)
         ) error = "请检查房号、金额和单价"
         else onSave(
             Room(

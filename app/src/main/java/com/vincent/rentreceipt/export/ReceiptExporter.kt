@@ -168,6 +168,7 @@ object ReceiptExporter {
             default.id in setOf("headRate", "waterRate", "electricRate") && template.elements.none { it.id == default.id }
         }
         (template.elements + missingRateElements).forEach { element ->
+            if (bill.managementRate.isNullOrBlank() && element.id in setOf("headRate", "waterRate", "electricRate")) return@forEach
             if (element.id == "rentUsage") return@forEach
             if (element.id == "date") {
                 drawStyledDate(canvas, bill, element, body, timesNewRoman)

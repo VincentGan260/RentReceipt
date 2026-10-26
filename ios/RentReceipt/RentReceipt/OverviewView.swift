@@ -2,12 +2,12 @@ import SwiftUI
 
 struct OverviewView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var search = ""
+    var search: String = ""
     @State private var month = MonthValue.current.next
     @State private var pendingPaidState: Bool?
 
     private var rooms: [Room] {
-        store.rooms().filter { search.isEmpty || $0.number.localizedCaseInsensitiveContains(search) }
+        store.rooms().filter { search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || $0.number.localizedCaseInsensitiveContains(search.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
     private var bills: [Bill] { store.bills(month: month.id) }
     private var total: Decimal {
@@ -79,7 +79,6 @@ struct OverviewView: View {
         }
         .navigationTitle("房租概览")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { BuildingMenu() } }
-        .searchable(text: $search, prompt: "搜索房间号")
         .alert(pendingPaidState == true ? "确认整月收款？" : "将整月恢复为未收？", isPresented: Binding(
             get: { pendingPaidState != nil },
             set: { if !$0 { pendingPaidState = nil } }
@@ -191,8 +190,9 @@ struct MonthValue: Hashable {
     var previous: Self { adding(-1) }
     var next: Self { adding(1) }
     static func parse(_ value: String) -> Self? {
+        guard value.range(of: #"^[0-9]{4}-(0[1-9]|1[0-2])$"#, options: .regularExpression) != nil else { return nil }
         let pieces = value.split(separator: "-")
-        guard pieces.count == 2, let year = Int(pieces[0]), let month = Int(pieces[1]), (1...12).contains(month) else { return nil }
+        guard pieces.count == 2, let year = Int(pieces[0]), year > 0, let month = Int(pieces[1]), (1...12).contains(month) else { return nil }
         return .init(year: year, month: month)
     }
     static func missingBillMonths(previous: String?, target: Self) -> [Self] {

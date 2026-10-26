@@ -1,5 +1,6 @@
 package com.vincent.rentreceipt.ui
 
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -28,6 +29,34 @@ import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
+internal data class BottomTabContent(
+    val selectedTab: MainTab,
+    val onTab: (MainTab) -> Unit,
+    val backdrop: LayerBackdrop?,
+    val modifier: Modifier
+)
+
+internal val LocalPageTabNavigation = androidx.compose.runtime.staticCompositionLocalOf<@Composable (BottomTabContent) -> Unit> {
+    { content -> MiuixTabNavigation(content) }
+}
+
+@Composable
+internal fun MiuixTabNavigation(content: BottomTabContent) {
+    val tabs = MainTab.entries
+    val items = tabs.map { tab ->
+        val painter = rememberVectorPainter(tab.miuixIcon())
+        MiuixFloatingTabItem(tab.name, tab.label(), painter, painter)
+    }
+    MiuixFloatingTabBar(
+        items = items,
+        selectedKey = content.selectedTab.name,
+        onItemSelected = { item -> content.onTab(tabs.first { it.name == item.key }) },
+        layout = MiuixFloatingTabLayout.Stacked,
+        backdrop = content.backdrop,
+        modifier = content.modifier
+    )
+}
+
 @Composable
 fun MiuixBottomBar(
     selectedTab: MainTab,
@@ -36,32 +65,30 @@ fun MiuixBottomBar(
     modifier: Modifier = Modifier,
     trailingAction: (@Composable () -> Unit)? = null
 ) {
-        val tabs = MainTab.entries
-        val items = tabs.map { tab ->
-            val painter = rememberVectorPainter(tab.miuixIcon())
-            MiuixFloatingTabItem(tab.name, tab.label(), painter, painter)
-        }
-        CompositionLocalProvider(LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true, blurRadius = 92f)) {
-            androidx.compose.foundation.layout.Row(
-                modifier = modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-            ) {
-            MiuixFloatingTabBar(
-                items = items,
-                selectedKey = selectedTab.name,
-                onItemSelected = { item -> onTab(tabs.first { it.name == item.key }) },
-                layout = MiuixFloatingTabLayout.Stacked,
-                backdrop = backdrop,
-                // Reserve space for the detached action first, including at enlarged UI scales.
-                modifier = if (trailingAction != null) Modifier.weight(1f, fill = false) else Modifier
-            )
-            if (trailingAction != null) {
-                androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
+    CompositionLocalProvider(LocalAdvancedMaterialSpec provides AdvancedMaterialSpec(enabled = true, blurRadius = 92f)) {
+        androidx.compose.foundation.layout.Row(
+            modifier = modifier.fillMaxWidth()
+                .navigationBarsPadding()
+                .then(if (LocalPageSearchExpanded.current) Modifier.imePadding() else Modifier).padding(horizontal = if (LocalPageSearchExpanded.current) 12.dp else 16.dp, vertical = 8.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            if (LocalPageSearchExpanded.current && trailingAction != null) {
                 trailingAction()
-            }
+            } else {
+                LocalPageTabNavigation.current.invoke(
+                    BottomTabContent(
+                        selectedTab, onTab, backdrop,
+                        if (trailingAction != null) Modifier.weight(1f, fill = false) else Modifier
+                    )
+                )
+                if (trailingAction != null) {
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
+                    trailingAction()
+                }
             }
         }
+    }
 }
 
 private fun MainTab.miuixIcon(): ImageVector = when (this) {

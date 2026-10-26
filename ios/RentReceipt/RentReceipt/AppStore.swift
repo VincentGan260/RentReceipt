@@ -50,6 +50,8 @@ final class AppStore: ObservableObject {
 
     func deleteRoom(id: String) {
         data.rooms.removeAll { $0.id == id }
+        drafts = drafts.filter { $0.key.components(separatedBy: "|").dropFirst().first != id }
+        saveDrafts()
         persist()
     }
 
@@ -78,7 +80,7 @@ final class AppStore: ObservableObject {
 
     func setMonthPaid(month: String, paid: Bool) {
         let day = Date.isoDayFormatter.string(from: Date())
-        for index in data.bills.indices where data.bills[index].buildingId == selectedBuildingID && data.bills[index].month == month {
+        for index in data.bills.indices where data.bills[index].buildingId == selectedBuildingID && data.bills[index].month == month && data.bills[index].paid != paid {
             data.bills[index].paid = paid
             data.bills[index].paidDate = paid ? day : nil
         }
@@ -100,6 +102,8 @@ final class AppStore: ObservableObject {
     }
 
     func replaceAll(with replacement: AppData) {
+        drafts = [:]
+        saveDrafts()
         data = replacement
         if data.buildings.isEmpty { data.buildings = [.init(id: defaultBuildingID, name: "默认楼栋")] }
         selectedBuildingID = data.buildings[0].id

@@ -84,6 +84,11 @@ class RentRepository(context: Context) {
     }
 
     fun deleteRoom(roomId: String) {
+        val editor = preferences.edit()
+        preferences.all.keys
+            .filter { it.startsWith(BILL_DRAFT_PREFIX) && it.removePrefix(BILL_DRAFT_PREFIX).substringBeforeLast(':').substringAfter(':') == roomId }
+            .forEach(editor::remove)
+        editor.apply()
         update(_data.value.copy(rooms = _data.value.rooms.filterNot { it.id == roomId }))
     }
 
@@ -150,16 +155,21 @@ class RentRepository(context: Context) {
         preferences.edit().putString(draftKey(buildingId, roomId, draft.month), value.toString()).apply()
     }
 
-    fun replaceAll(data: AppData) = update(
-        data.copy(
-            buildings = data.buildings.ifEmpty { listOf(Building(DEFAULT_BUILDING_ID, "默认楼栋")) },
-            rooms = data.rooms.sortedWith { left, right ->
-                val buildingOrder = left.buildingId.compareTo(right.buildingId)
-                if (buildingOrder != 0) buildingOrder else roomNumberComparator.compare(left.number, right.number)
-            },
-            bills = data.bills.sortedWith(compareByDescending<Bill> { it.month }.thenBy { it.buildingId })
+    fun replaceAll(data: AppData) {
+        val editor = preferences.edit()
+        preferences.all.keys.filter { it.startsWith(BILL_DRAFT_PREFIX) }.forEach(editor::remove)
+        editor.apply()
+        update(
+            data.copy(
+                buildings = data.buildings.ifEmpty { listOf(Building(DEFAULT_BUILDING_ID, "默认楼栋")) },
+                rooms = data.rooms.sortedWith { left, right ->
+                    val buildingOrder = left.buildingId.compareTo(right.buildingId)
+                    if (buildingOrder != 0) buildingOrder else roomNumberComparator.compare(left.number, right.number)
+                },
+                bills = data.bills.sortedWith(compareByDescending<Bill> { it.month }.thenBy { it.buildingId })
+            )
         )
-    )
+    }
 
     private fun update(data: AppData) {
         _data.value = data
@@ -313,7 +323,7 @@ private fun JSONObject.toBuilding() = Building(
         optString("water", "5.00"),
         optString("electricity", "1.30"),
         nullableString("waterMeterMax"),
-        nullableString("electricityMeterMax") ?: "10000",
+        if (has("electricityMeterMax")) nullableString("electricityMeterMax") else "10000",
         nullableString("managementRate")
     ),
     receiptTemplate = optJSONArray("receiptTemplate")?.toReceiptTemplate()

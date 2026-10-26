@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct RoomsView: View {
+    var search: String = ""
     @EnvironmentObject private var store: AppStore
     @State private var editingRoom: Room?
     @State private var addingRoom = false
@@ -19,6 +20,11 @@ struct RoomsView: View {
     @State private var message: String?
     @State private var pdfStart = MonthValue(year: Calendar.current.component(.year, from: Date()), month: 1)
     @State private var pdfEnd = MonthValue(year: Calendar.current.component(.year, from: Date()), month: 12)
+
+    private var visibleRooms: [Room] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.rooms().filter { query.isEmpty || $0.number.localizedCaseInsensitiveContains(query) }
+    }
 
     var body: some View {
         ZStack {
@@ -89,8 +95,10 @@ struct RoomsView: View {
 
                     if store.rooms().isEmpty {
                         EmptyState(icon: "door.left.hand.open", title: "还没有房间", detail: "新增第一个房间后即可开始录入账单。")
+                    } else if visibleRooms.isEmpty {
+                        EmptyState(icon: "magnifyingglass", title: "没有找到房间", detail: "请检查房间号后重试。")
                     }
-                    ForEach(store.rooms()) { room in
+                    ForEach(visibleRooms) { room in
                         Button { editingRoom = room } label: {
                             AppCard {
                                 HStack {

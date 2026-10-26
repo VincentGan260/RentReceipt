@@ -73,6 +73,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -139,6 +140,8 @@ private class PageMaterialHost {
 private val LocalPageMaterialHost = staticCompositionLocalOf { PageMaterialHost() }
 
 val LocalPageTransitionModifier = staticCompositionLocalOf<Modifier> { Modifier }
+
+val LocalPageSearchExpanded = staticCompositionLocalOf { false }
 
 val LocalPageSearchAction = staticCompositionLocalOf<(@Composable () -> Unit)?> { null }
 
@@ -781,40 +784,83 @@ fun ExpressivePage(
     content: LazyListScope.() -> Unit
 ) {
     var showSearch by remember { mutableStateOf(false) }
-    var searchText by remember { mutableStateOf(searchQuery.orEmpty()) }
     val searchFocusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val searchKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val searchFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val closeSearch = {
+        onSearchQueryChange?.invoke("")
         searchFocusManager.clearFocus()
         searchKeyboard?.hide()
         showSearch = false
     }
+    androidx.activity.compose.BackHandler(enabled = showSearch) { closeSearch() }
     val searchAction: (@Composable () -> Unit)? = if (searchQuery != null && onSearchQueryChange != null) {
         {
-            SoftGlassIconButton(onClick = { searchText = searchQuery.orEmpty(); showSearch = true }, size = 54.dp,
-                tint = XiaomiTheme.colorScheme.surfaceContainer,
-                shadowRadiusScale = 0.34f) {
-                Icon(KitIcons.Search, if (searchQuery.isBlank()) "搜索房间号" else "搜索房间号·已筛选",
-                    modifier = Modifier.size(26.dp))
+            if (showSearch) {
+                LaunchedEffect(Unit) {
+                    searchFocusRequester.requestFocus()
+                    searchKeyboard?.show()
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    com.aritxonly.deadliner.ui.material.glass.SoftGlassSurface(
+                        modifier = Modifier.weight(1f).heightIn(min = 54.dp),
+                        shape = RoundedCornerShape(28.dp)
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = searchQuery,
+                            onValueChange = onSearchQueryChange,
+                            modifier = Modifier.fillMaxWidth().focusRequester(searchFocusRequester),
+                            singleLine = true,
+                            textStyle = KitTypography.bodyLarge.copy(color = KitColors.onSurface),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(KitColors.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                searchFocusManager.clearFocus()
+                                searchKeyboard?.hide()
+                            }),
+                            decorationBox = { innerTextField ->
+                                Row(
+                                    Modifier.heightIn(min = 54.dp).padding(start = 18.dp, end = 6.dp),
+                                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(KitIcons.Search, null, Modifier.size(22.dp), tint = KitColors.onSurfaceVariant)
+                                    Box(Modifier.weight(1f).padding(vertical = 12.dp)) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text("搜索房间号", style = KitTypography.bodyLarge, color = KitColors.onSurfaceVariant)
+                                        }
+                                        innerTextField()
+                                    }
+                                    if (searchQuery.isNotEmpty()) {
+                                        androidx.compose.material3.IconButton(onClick = { onSearchQueryChange("") }) {
+                                            Icon(KitIcons.SearchCleanup, "清除搜索", Modifier.size(20.dp), tint = KitColors.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
+                    SoftGlassIconButton(
+                        onClick = closeSearch,
+                        size = 54.dp,
+                        shadowRadiusScale = 0.34f
+                    ) {
+                        Icon(KitIcons.Cancel, "取消搜索", Modifier.size(24.dp), tint = KitColors.onSurface)
+                    }
+                }
+            } else {
+                SoftGlassIconButton(onClick = { showSearch = true }, size = 54.dp,
+                    tint = XiaomiTheme.colorScheme.surfaceContainer,
+                    shadowRadiusScale = 0.34f) {
+                    Icon(KitIcons.Search, "搜索房间号", modifier = Modifier.size(26.dp))
+                }
             }
         }
     } else null
-    if (showSearch && searchQuery != null && onSearchQueryChange != null) {
-        KitAlertDialog(
-            onDismissRequest = closeSearch, title = "搜索房间号",
-            text = {
-                KitTextField(value = searchText, onValueChange = { searchText = it },
-                    label = "房间号", modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = {
-                        Box(Modifier.padding(start = 16.dp, end = 12.dp).size(20.dp)) {
-                            Icon(KitIcons.Search, null, Modifier.fillMaxSize(), tint = KitColors.onSurfaceVariant)
-                        }
-                    })
-            },
-            confirmButton = { TextButton("搜索", onClick = { onSearchQueryChange(searchText); closeSearch() }) },
-            dismissButton = { TextButton("清除", onClick = { searchText = ""; onSearchQueryChange(""); closeSearch() }) }
-        )
-    }
     val contentEntry = remember(title) { androidx.compose.animation.core.Animatable(0.8f) }
     val playAnimation = LocalAnimationsEnabled.current
     LaunchedEffect(title, playAnimation) {
@@ -843,7 +889,8 @@ fun ExpressivePage(
         Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(
                 LocalTopBarButtonMaterialProgress provides buttonProgress,
-                LocalPageSearchAction provides searchAction
+                LocalPageSearchAction provides searchAction,
+                LocalPageSearchExpanded provides showSearch
             ) {
             com.aritxonly.myhypermodifier.DeadlinerMiuixScaffold(
                 scrollProgress = progress,
@@ -870,9 +917,7 @@ fun ExpressivePage(
                         state = listState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = contentEntry.value
-                            }
+                            .graphicsLayer { alpha = contentEntry.value }
                             .imePadding(),
                         contentPadding = PaddingValues(
                             start = 16.dp,

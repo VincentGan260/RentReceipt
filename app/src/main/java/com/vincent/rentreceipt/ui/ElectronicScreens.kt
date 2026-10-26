@@ -23,18 +23,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -139,28 +128,24 @@ fun ElectronicHome(
         EmptyBuildingsScreen(onSaveBuilding, onSelectBuilding)
         return
     }
-    var chromeVisible by remember { mutableStateOf(true) }
-    val density = LocalDensity.current
-    val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    val bottomBarStyle = LocalBottomBarStyle.current
-    val fixedMiuixBottomBar = bottomBarStyle != BottomBarStyle.FLOATING &&
-        bottomBarStyle != BottomBarStyle.LIQUID_GLASS
-    val animationsEnabled = LocalAnimationsEnabled.current
+    // Preserve only navigation motion across pages. Search stays page-local.
+    val tabNavigation = remember {
+        androidx.compose.runtime.movableContentOf<BottomTabContent> { content ->
+            MiuixTabNavigation(content)
+        }
+    }
     Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier.fillMaxSize()
+        CompositionLocalProvider(
+            LocalPageTabNavigation provides tabNavigation,
+            LocalPageBottomBar provides {
+                MiuixBottomBar(
+                    selectedTab, onTab,
+                    backdrop = com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialBackdrop.current,
+                    trailingAction = LocalPageSearchAction.current
+                )
+            }
         ) {
-            CompositionLocalProvider(
-                LocalPageScrollStateChange provides { scrolling -> chromeVisible = !scrolling },
-                LocalPageBottomBar provides {
-                    run {
-                        MiuixBottomBar(selectedTab, onTab,
-                            backdrop = com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialBackdrop.current,
-                            trailingAction = LocalPageSearchAction.current)
-                    }
-                }
-            ) {
-                androidx.compose.runtime.key(selectedTab) {
+            androidx.compose.runtime.key(selectedTab) {
                 val tab = selectedTab
                 when (tab) {
                     MainTab.OVERVIEW -> OverviewScreen(
@@ -176,10 +161,8 @@ fun ElectronicHome(
                         onEditAppearance, onEditRoom, onRestore, onSaveBuilding, onDeleteBuilding
                     )
                 }
-                }
             }
         }
-
     }
 }
 
@@ -421,9 +404,7 @@ private fun ElectronicEntryScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("${readingMonth.year} 年 ${readingMonth.monthValue} 月抄表", style = KitTypography.headlineMedium)
-                        Text("生成 ${billMonth.year} 年 ${billMonth.monthValue} 月房租单")
-                        Text("收据日期：${billMonth.atDay(1)}")
+                        Text("${billMonth.year}年${billMonth.monthValue}月开单", style = KitTypography.headlineMedium, maxLines = 1)
                         TextButton(
                             text = "选择抄表月份",
                             onClick = { pendingMonth = readingMonth; showMonthDialog = true }

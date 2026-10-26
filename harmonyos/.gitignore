@@ -1,0 +1,9 @@
+.hvigor/
+oh_modules/
+**/build/
+local.properties
+*.p12
+*.cer
+*.p7b
+
+signing-config.local.json

@@ -69,6 +69,8 @@ enum ReceiptRenderer {
             ["headRate", "waterRate", "electricRate"].contains(element.id) && !template.elements.contains { $0.id == element.id }
         }
         for element in template.elements + missingRates {
+            if (bill.managementRate?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                && ["headRate", "waterRate", "electricRate"].contains(element.id) { continue }
             if element.id == "rentUsage" { continue }
             if element.id == "date" {
                 drawStyledDate(bill, element: element, ink: ink, blue: blue, left: left, right: right)

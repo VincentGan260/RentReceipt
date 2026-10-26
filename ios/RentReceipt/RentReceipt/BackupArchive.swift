@@ -63,7 +63,7 @@ enum BackupArchive {
                 defaultWaterRate: try row.required("default_water_rate"),
                 defaultElectricityRate: try row.required("default_electricity_rate"),
                 defaultWaterMeterMax: row.optional("default_water_meter_max"),
-                defaultElectricityMeterMax: row.optional("default_electricity_meter_max") ?? "10000",
+                defaultElectricityMeterMax: version >= 6 ? row.optional("default_electricity_meter_max") : "10000",
                 defaultManagementRate: version >= 9 ? row.optional("default_management_rate") : nil))
         }
         guard !buildings.isEmpty else { throw BackupError.message("备份中没有楼栋") }

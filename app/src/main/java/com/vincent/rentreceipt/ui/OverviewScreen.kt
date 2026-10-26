@@ -82,14 +82,18 @@ fun OverviewScreen(
                         Icon(KitIcons.Forward, "下个月")
                     }
                 }
-                if (monthBills.any { !it.paid }) {
+                if (monthBills.isNotEmpty()) {
                     FilledTonalButton(
                         onClick = {
-                            onMarkMonthPaid(building.id, month.toString(), LocalDate.now().toString())
+                            if (monthBills.all(Bill::paid)) {
+                                monthBills.forEach { onSaveBill(it.copy(paid = false, paidDate = null)) }
+                            } else {
+                                onMarkMonthPaid(building.id, month.toString(), LocalDate.now().toString())
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("一键标记本月全部已收")
+                        Text(if (monthBills.all(Bill::paid)) "一键标记本月全部未收" else "一键标记本月全部已收")
                     }
                 }
                 }

@@ -71,6 +71,7 @@ enum BillCalculator {
     }
 
     static func makeBill(room: Room, settings: PricingSettings, draft: BillDraft) throws -> Bill {
+        guard MonthValue.parse(draft.month) != nil else { throw BillValidationError.message("月份格式错误") }
         let value = try calculate(room: room, settings: settings, draft: draft)
         let previousWater = draft.rentOnly ? draft.currentWater : draft.previousWater
         let previousElectricity = draft.rentOnly ? draft.currentElectricity : draft.previousElectricity
@@ -88,7 +89,9 @@ enum BillCalculator {
     }
 
     static func decimal(_ text: String, _ label: String = "数字") throws -> Decimal {
-        guard let value = Decimal(string: text.trimmingCharacters(in: .whitespaces), locale: Locale(identifier: "en_US_POSIX")) else {
+        let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard input.range(of: #"^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$"#, options: .regularExpression) != nil,
+              let value = Decimal(string: input, locale: Locale(identifier: "en_US_POSIX")), !value.isNaN else {
             throw BillValidationError.message("\(label)格式错误")
         }
         return value
