@@ -53,6 +53,8 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew assembleRelease   # 产物：app/build/outputs/apk/release/app-release.apk
 ```
 
+GitHub Release 安装包统一命名为 `RentReceipt-v<版本号>-release.apk`，例如 `RentReceipt-v1.3-release.apk`。
+
 #### 发布签名（正式发布必读）
 
 `release` 构建从项目根目录的 `keystore.properties` 读取签名配置：

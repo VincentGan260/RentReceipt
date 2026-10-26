@@ -76,8 +76,12 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Name release APK
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/RentReceipt-${GITHUB_REF_NAME}-release.apk"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.notes.outputs.body }}
-          files: app/build/outputs/apk/release/app-release.apk
+          files: app/build/outputs/apk/release/RentReceipt-${{ github.ref_name }}-release.apk
