@@ -1,7 +1,7 @@
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { supportsImmersiveNavigation, gradientTitleBar } from './ImmersiveNavigation';
 import { util } from '@kit.ArkTS';
-import { Building, Room, PricingSettings, DepositStatus, CustomCharge } from '../model/Models';
+import { Building, Room, PricingSettings, DepositStatus, CustomCharge, AppData } from '../model/Models';
 import { cloneRoom, validatePricing, validateRoom, optionalNumber, changeDepositStatus, today } from '../model/UiLogic';
 import { StoreSession } from '../data/StoreSession';
 import { FormField, ChargeEditor } from './FormComponents';
@@ -12,7 +12,7 @@ export struct BuildingEditor {
   @StorageLink('pageScale') uiScale: number = 1;
   original?: Building;
   paths: NavPathStack = new NavPathStack();
-  onSaved: () => void = () => {};
+  onSaved: (previous: AppData) => void = () => {};
   @State building: Building = new Building();
   @State busy: boolean = false;
   @State message: string = '';
@@ -41,8 +41,9 @@ export struct BuildingEditor {
       if (!this.building.name.trim()) { throw new Error('请填写楼栋名称'); }
       validatePricing(this.building.settings);
       this.building.name = this.building.name.trim();
+      const previous = (await StoreSession.store!.settledSnapshot()).data;
       await StoreSession.store!.saveBuilding(this.building);
-      this.onSaved(); this.paths.pop();
+      this.paths.pop(); this.onSaved(previous);
     } catch (error) { this.message = (error as Error).message; }
     finally { this.busy = false; }
   }
@@ -68,7 +69,8 @@ export struct BuildingEditor {
   private async remove(id: string): Promise<void> {
     if (this.busy) { return; }
     this.busy = true;
-    try { await StoreSession.store!.deleteBuilding(id); this.onSaved(); this.paths.pop(); }
+    const previous = StoreSession.store!.snapshot().data;
+    try { await StoreSession.store!.deleteBuilding(id); this.paths.pop(); this.onSaved(previous); }
     catch (error) { this.message = (error as Error).message; }
     finally { this.busy = false; }
   }
@@ -98,14 +100,18 @@ export struct BuildingEditor {
               onEdit: (value: string) => this.editPrice(4, value) })
           }.padding(20).borderRadius(24).backgroundColor($r('app.color.surface')).enabled(!this.busy)
           if (this.message) { Text(this.message).fontSize(16 * this.uiScale).fontColor($r('app.color.danger')).width('100%') }
-          Button(this.busy ? '正在保存…' : '保存楼栋').width('100%').height(48 * this.uiScale)
-            .enabled(!this.busy).onClick(() => { this.save(); })
-          if (this.original) {
-            Button('删除楼栋').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16).width('100%').height(48 * this.uiScale)
-              .fontColor($r('app.color.danger')).enabled(!this.busy).onClick(() => this.confirmDelete())
-          }
+          Row({ space: 12 }) {
+            if (this.original) {
+              Button('删除楼栋').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16)
+                .layoutWeight(1).height(48 * this.uiScale).fontColor($r('app.color.danger'))
+                .enabled(!this.busy).onClick(() => this.confirmDelete())
+            }
+            Button(this.busy ? '正在保存…' : '保存楼栋').type(ButtonType.Normal).borderRadius(16)
+              .layoutWeight(1).height(48 * this.uiScale).enabled(!this.busy).onClick(() => { this.save(); })
+          }.width('100%')
         }.width('100%').constraintSize({ maxWidth: 720 }).padding(16)
-      }.clip(!supportsImmersiveNavigation()).width('100%').height('100%').align(Alignment.TopStart)
+      }.expandSafeArea(supportsImmersiveNavigation() ? [] : [SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+        .clip(!supportsImmersiveNavigation()).width('100%').height('100%').align(Alignment.TopStart)
   }
 
   build() {
@@ -118,6 +124,7 @@ export struct BuildingEditor {
     } else {
       NavDestination() { this.pageContent() }.title(this.original ? '楼栋设置' : '新增楼栋').onBackPressed(() => this.busy)
       .backgroundColor($r('app.color.page_background'))
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 }
@@ -129,7 +136,7 @@ export struct RoomEditor {
   original?: Room;
   buildingId: string = '';
   paths: NavPathStack = new NavPathStack();
-  onSaved: () => void = () => {};
+  onSaved: (previous: AppData) => void = () => {};
   @State room: Room = new Room();
   @State busy: boolean = false;
   @State message: string = '';
@@ -160,8 +167,9 @@ export struct RoomEditor {
       const value = cloneRoom(this.room);
       value.number = value.number.trim();
       value.recurringCharges.forEach((charge: CustomCharge) => { charge.name = charge.name.trim(); });
+      const previous = (await StoreSession.store!.settledSnapshot()).data;
       await StoreSession.store!.saveRoom(value);
-      this.onSaved(); this.paths.pop();
+      this.paths.pop(); this.onSaved(previous);
     } catch (error) { this.message = (error as Error).message; }
     finally { this.busy = false; }
   }
@@ -177,7 +185,8 @@ export struct RoomEditor {
 
   private async remove(id: string): Promise<void> {
     this.busy = true;
-    try { await StoreSession.store!.deleteRoom(id); this.onSaved(); this.paths.pop(); }
+    const previous = StoreSession.store!.snapshot().data;
+    try { await StoreSession.store!.deleteRoom(id); this.paths.pop(); this.onSaved(previous); }
     catch (error) { this.message = (error as Error).message; }
     finally { this.busy = false; }
   }
@@ -229,14 +238,18 @@ export struct RoomEditor {
             onEdit: (charges: CustomCharge[]) => { this.room.recurringCharges = charges; } })
             .padding(20).borderRadius(24).backgroundColor($r('app.color.surface')).enabled(!this.busy)
           if (this.message) { Text(this.message).fontSize(16 * this.uiScale).fontColor($r('app.color.danger')).width('100%') }
-          Button(this.busy ? '正在保存…' : '保存房间').width('100%').height(48 * this.uiScale)
-            .enabled(!this.busy).onClick(() => { this.save(); })
-          if (this.original) {
-            Button('删除房间').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16).width('100%').height(48 * this.uiScale)
-              .fontColor($r('app.color.danger')).enabled(!this.busy).onClick(() => this.confirmDelete())
-          }
+          Row({ space: 12 }) {
+            if (this.original) {
+              Button('删除房间').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16)
+                .layoutWeight(1).height(48 * this.uiScale).fontColor($r('app.color.danger'))
+                .enabled(!this.busy).onClick(() => this.confirmDelete())
+            }
+            Button(this.busy ? '正在保存…' : '保存房间').type(ButtonType.Normal).borderRadius(16)
+              .layoutWeight(1).height(48 * this.uiScale).enabled(!this.busy).onClick(() => { this.save(); })
+          }.width('100%')
         }.width('100%').constraintSize({ maxWidth: 720 }).padding(16)
-      }.clip(!supportsImmersiveNavigation()).width('100%').height('100%').align(Alignment.TopStart)
+      }.expandSafeArea(supportsImmersiveNavigation() ? [] : [SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+        .clip(!supportsImmersiveNavigation()).width('100%').height('100%').align(Alignment.TopStart)
   }
 
   build() {
@@ -249,6 +262,7 @@ export struct RoomEditor {
     } else {
       NavDestination() { this.pageContent() }.title(this.original ? '编辑房间' : '新增房间').onBackPressed(() => this.busy)
       .backgroundColor($r('app.color.page_background'))
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 }

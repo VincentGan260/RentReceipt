@@ -17,6 +17,11 @@ struct BillCalculation: Equatable {
 }
 
 enum BillCalculator {
+    static func nextEmptyReading(_ drafts: [BillDraft], after: Int) -> Int? {
+        let values = drafts.flatMap { [$0.previousWater, $0.currentWater, $0.previousElectricity, $0.currentElectricity] }
+        return values.indices.first { $0 > after && values[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     static func calculate(room: Room, settings: PricingSettings, draft: BillDraft) throws -> BillCalculation {
         let customChargeTotal = try draft.customCharges.reduce(Decimal.zero) { partial, charge in
             guard !charge.name.trimmingCharacters(in: .whitespaces).isEmpty, !charge.amount.isEmpty else {
@@ -123,5 +128,37 @@ enum BillCalculator {
         let maximum = try decimal(meterMax, "\(label)归零上限")
         guard maximum > previous, current >= 0 else { throw BillValidationError.message("\(label)归零上限设置无效") }
         return maximum - previous + current
+    }
+}
+
+// Compare effective fees numerically; meter settings do not change saved usage.
+extension Room {
+    func billingFees(_ settings: PricingSettings) -> [String] {
+        [rent, customWaterRate ?? settings.defaultWaterRate,
+         customElectricityRate ?? settings.defaultElectricityRate,
+         customManagementRate ?? settings.defaultManagementRate ?? "0"].map { BillCalculator.normalized($0.isEmpty ? "0" : $0) }
+        + recurringCharges.flatMap { [$0.name.trimmingCharacters(in: .whitespaces), BillCalculator.normalized($0.amount)] }
+    }
+}
+
+extension Bill {
+    func repriced(room: Room, settings: PricingSettings, previousRoom: Room) throws -> Bill {
+        var charges = customCharges
+        if previousRoom.recurringCharges != room.recurringCharges {
+            for old in previousRoom.recurringCharges {
+                if let index = charges.firstIndex(where: {
+                    $0.name == old.name.trimmingCharacters(in: .whitespaces) &&
+                    BillCalculator.normalized($0.amount) == BillCalculator.text((try? BillCalculator.decimal(old.amount)) ?? 0)
+                }) { charges.remove(at: index) }
+            }
+            charges += room.recurringCharges
+        }
+        let draft = BillDraft(month: month, previousWater: previousWater, currentWater: currentWater,
+            previousElectricity: previousElectricity, currentElectricity: currentElectricity,
+            rentOnly: rentOnly, waterUsageOverride: waterUsage.isEmpty ? BillCalculator.text(try BillCalculator.decimal(currentWater) - BillCalculator.decimal(previousWater)) : waterUsage,
+            electricityUsageOverride: electricityUsage.isEmpty ? BillCalculator.text(try BillCalculator.decimal(currentElectricity) - BillCalculator.decimal(previousElectricity)) : electricityUsage, customCharges: charges)
+        var result = try BillCalculator.makeBill(room: room, settings: settings, draft: draft)
+        result.id = id; result.createdDate = createdDate; result.paid = paid; result.paidDate = paidDate
+        return result
     }
 }

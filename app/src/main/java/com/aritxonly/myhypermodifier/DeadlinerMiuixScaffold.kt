@@ -18,6 +18,10 @@ import androidx.compose.ui.unit.dp
 import com.aritxonly.deadliner.ui.material.glass.DeadlinerGlassRecipes
 import com.aritxonly.deadliner.ui.material.glass.GlassTintStyle
 import com.aritxonly.deadliner.ui.material.glass.deadlinerGlassMaterial
+import com.aritxonly.deadliner.ui.theme.advancedTextureBlur
+import com.aritxonly.deadliner.ui.theme.rememberBlurColors
+import top.yukonga.miuix.kmp.blur.BlendColorEntry
+import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
 import com.aritxonly.deadliner.ui.theme.AdvancedMaterialSpec
 import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialBackdrop
 import com.aritxonly.deadliner.ui.theme.LocalAdvancedMaterialSpec
@@ -97,15 +101,15 @@ fun DeadlinerMiuixDialog(
 ) {
     val advanced = LocalAdvancedMaterialSpec.current
     val backdrop = LocalAdvancedMaterialBackdrop.current
-    val modifier = if (advanced.enabled && backdrop != null) {
-        Modifier.deadlinerGlassMaterial(
+    // Modal surfaces use frosted blur, without the navigation lens/refraction stack.
+    val modifier = if (advanced.textureBlurEnabled && backdrop != null && isRuntimeShaderSupported()) {
+        Modifier.advancedTextureBlur(
             advancedMaterial = advanced,
             backdrop = backdrop,
             shape = androidx.compose.foundation.shape.RoundedCornerShape(36.dp),
-            tint = MiuixTheme.colorScheme.surfaceContainer,
-            tintStyle = GlassTintStyle.Neutral,
-            isDark = MiuixTheme.colorScheme.onSurface.luminance() > 0.5f,
-            recipe = DeadlinerGlassRecipes.dialog(advanced.fineTuning),
+            colors = advanced.rememberBlurColors(listOf(
+                BlendColorEntry(MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.62f))
+            )),
         )
     } else Modifier
     OverlayDialog(
@@ -114,7 +118,7 @@ fun DeadlinerMiuixDialog(
         summary = summary,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        backgroundColor = if (modifier == Modifier) MiuixTheme.colorScheme.surfaceContainer else Color.Transparent,
+        backgroundColor = if (modifier == Modifier) MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 1f) else Color.Transparent,
         cornerRadius = 36.dp,
         maxWidth = 420.dp,
         content = content,
@@ -146,7 +150,7 @@ fun DeadlinerMiuixBottomSheet(
         title = title,
         onDismissRequest = onDismissRequest,
         modifier = modifier,
-        backgroundColor = if (modifier == Modifier) MiuixTheme.colorScheme.surfaceContainer else Color.Transparent,
+        backgroundColor = if (modifier == Modifier) MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 1f) else Color.Transparent,
         cornerRadius = 36.dp,
         sheetMaxWidth = 560.dp,
         content = content,

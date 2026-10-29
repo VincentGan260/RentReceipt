@@ -67,7 +67,7 @@ fun Modifier.deadlinerGlassMaterial(
         style = tintStyle,
         isDark = isDark,
     )
-    // Modified 2026-10-12: Android 12 uses the tint/edge fallback, without runtime shaders.
+    // Devices without blur support use an opaque surface so underlying text cannot bleed through.
     val canDrawBackdrop = resolvedMaterial.textureBlurEnabled && backdrop != null && isRuntimeShaderSupported()
     val canDrawOpticalStack = canDrawBackdrop &&
         recipe.refraction.enabled &&
@@ -98,7 +98,7 @@ fun Modifier.deadlinerGlassMaterial(
         }
 
         else -> Modifier
-            .background(color = tintComposite.fallbackTint, shape = shape)
+            .background(color = tintComposite.fallbackTint.copy(alpha = 1f), shape = shape)
             .fallbackGlassEdge(shape, recipe.edgeOptics, isDark)
     }
 

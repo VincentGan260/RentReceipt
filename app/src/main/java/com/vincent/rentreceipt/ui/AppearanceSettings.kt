@@ -165,8 +165,8 @@ fun AppearanceSettingsScreen(
 
     ExpressivePage("界面设置", navigation = { BackButton(onBack) }) {
         item {
-            SectionTitle("外观")
-            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp, horizontal = 0.dp)) {
+                Text("外观", color = KitColors.onSurface, style = KitTypography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp))
                 WindowDropdownMenu(
                     entry = DropdownEntry(items = AppColorMode.entries.map { mode ->
                         DropdownItem(text = mode.label, selected = state.colorMode == mode,
@@ -183,8 +183,8 @@ fun AppearanceSettingsScreen(
             }
         }
         item {
-            SectionTitle("交互")
-            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp, horizontal = 0.dp)) {
+                Text("交互", color = KitColors.onSurface, style = KitTypography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp))
                 if (supportsPredictiveBack) {
                     com.aritxonly.myhypermodifier.SettingsSwitchItem(
                         label = "预测返回", supportingText = "返回时预览上一页",
@@ -203,8 +203,8 @@ fun AppearanceSettingsScreen(
             }
         }
         item {
-            SectionTitle("关于")
-            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+            ExpressiveCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp, horizontal = 0.dp)) {
+                Text("关于", color = KitColors.onSurface, style = KitTypography.titleLarge, modifier = Modifier.padding(horizontal = 16.dp))
                 com.aritxonly.myhypermodifier.SettingItem(
                     headlineText = "关于房租单生成", supportingText = "版本信息、开源技术与许可",
                     trailingContent = { Icon(KitIcons.Forward, null, tint = KitColors.onSurfaceVariant) },

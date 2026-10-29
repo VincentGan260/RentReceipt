@@ -158,3 +158,36 @@ export function chargesForBill(room: Room, draft?: BillDraft, bill?: Bill): Cust
   const charges = draft ? draft.customCharges : (bill ? bill.customCharges : room.recurringCharges);
   return JSON.parse(JSON.stringify(charges)) as CustomCharge[];
 }
+
+export function billingFees(room: Room, settings: PricingSettings): string {
+  const values = [room.rent, room.customWaterRate ?? settings.defaultWaterRate,
+    room.customElectricityRate ?? settings.defaultElectricityRate,
+    room.customManagementRate ?? settings.defaultManagementRate ?? '0'];
+  return JSON.stringify(values.map((value: string) => Decimal.parse(value.trim() || '0').toString())) +
+    JSON.stringify(room.recurringCharges.map((charge: CustomCharge) => [charge.name.trim(), Decimal.parse(charge.amount).toString()]));
+}
+
+export function repriceBill(bill: Bill, room: Room, settings: PricingSettings, previousRoom: Room): Bill {
+  let charges = bill.customCharges.slice();
+  if (billingCharges(previousRoom) !== billingCharges(room)) {
+    previousRoom.recurringCharges.forEach((old: CustomCharge) => {
+      const index = charges.findIndex((charge: CustomCharge) => charge.name === old.name.trim() &&
+        Decimal.parse(charge.amount).compare(Decimal.parse(old.amount).whole()) === 0);
+      if (index >= 0) { charges.splice(index, 1); }
+    });
+    charges = charges.concat(room.recurringCharges);
+  }
+  const draft = new BillDraft();
+  draft.month = bill.month; draft.previousWater = bill.previousWater; draft.currentWater = bill.currentWater;
+  draft.previousElectricity = bill.previousElectricity; draft.currentElectricity = bill.currentElectricity;
+  draft.rentOnly = bill.rentOnly; draft.customCharges = charges;
+  draft.waterUsageOverride = bill.waterUsage || Decimal.parse(bill.currentWater).subtract(Decimal.parse(bill.previousWater)).toString();
+  draft.electricityUsageOverride = bill.electricityUsage || Decimal.parse(bill.currentElectricity).subtract(Decimal.parse(bill.previousElectricity)).toString();
+  const result = createBill(room, settings, draft, bill.id);
+  result.createdDate = bill.createdDate; result.paid = bill.paid; result.paidDate = bill.paidDate;
+  return result;
+}
+
+function billingCharges(room: Room): string {
+  return JSON.stringify(room.recurringCharges);
+}

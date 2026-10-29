@@ -1,6 +1,17 @@
 package com.vincent.rentreceipt.ui
 
 import android.os.Build
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import com.vincent.rentreceipt.model.Bill
+import com.vincent.rentreceipt.model.billingFees
+import com.vincent.rentreceipt.model.reprice
+import com.vincent.rentreceipt.export.ReceiptExporter
+import java.time.YearMonth
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
@@ -54,6 +65,13 @@ sealed interface Screen : NavKey {
 
 @Composable
 fun RentApp(vm: MainViewModel = viewModel()) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var readingMonth by remember { mutableStateOf(YearMonth.now()) }
+    var pendingReexport by remember { mutableStateOf<List<Bill>>(emptyList()) }
+    var repricingRevision by remember { mutableStateOf(0) }
+    var exporting by remember { mutableStateOf(false) }
+    var exportMessage by remember { mutableStateOf<String?>(null) }
     val appearanceSettings = rememberAppearanceSettingsState()
     val data by vm.data.collectAsStateWithLifecycle()
     val stack = remember { mutableStateListOf<NavKey>(Screen.Home) }
@@ -101,26 +119,30 @@ fun RentApp(vm: MainViewModel = viewModel()) {
                     }
                     Box(Modifier.fillMaxSize().background(KitColors.background)) {
                         when (screen) {
-                            Screen.Home -> ElectronicHome(
-                                data = data,
-                                selectedBuildingId = selectedBuilding?.id.orEmpty(),
-                                onSelectBuilding = { selectedBuildingId = it },
-                                selectedTab = selectedTab,
-                                onTab = { selectedTab = it },
-                                onSaveBill = vm::saveBill,
-                                onMarkMonthPaid = vm::markMonthPaid,
-                                onSaveBills = vm::saveBills,
-                                onLoadBillDraft = vm::loadBillDraft,
-                                onSaveBillDraft = vm::saveBillDraft,
-                                onEditSettings = { selectedBuilding?.let { push(Screen.Settings(it.id)) } },
-                                onEditAppearance = { push(Screen.AppearanceSettings) },
-                                onEditRoom = { roomId -> selectedBuilding?.let { push(Screen.RoomEditor(it.id, roomId)) } },
-                                onRoomHistory = { push(Screen.RoomHistory(it)) },
-                                onPreview = { push(Screen.Preview(it)) },
-                                onRestore = vm::replaceAll,
-                                onSaveBuilding = vm::saveBuilding,
-                                onDeleteBuilding = vm::deleteBuilding
-                            )
+                            Screen.Home -> androidx.compose.runtime.key(repricingRevision) {
+                                ElectronicHome(
+                                    data = data,
+                                    selectedBuildingId = selectedBuilding?.id.orEmpty(),
+                                    onSelectBuilding = { selectedBuildingId = it },
+                                    selectedTab = selectedTab,
+                                    onTab = { selectedTab = it },
+                                    readingMonth = readingMonth,
+                                    onReadingMonthChange = { readingMonth = it },
+                                    onSaveBill = vm::saveBill,
+                                    onMarkMonthPaid = vm::markMonthPaid,
+                                    onSaveBills = vm::saveBills,
+                                    onLoadBillDraft = vm::loadBillDraft,
+                                    onSaveBillDraft = vm::saveBillDraft,
+                                    onEditSettings = { selectedBuilding?.let { push(Screen.Settings(it.id)) } },
+                                    onEditAppearance = { push(Screen.AppearanceSettings) },
+                                    onEditRoom = { roomId -> selectedBuilding?.let { push(Screen.RoomEditor(it.id, roomId)) } },
+                                    onRoomHistory = { push(Screen.RoomHistory(it)) },
+                                    onPreview = { push(Screen.Preview(it)) },
+                                    onRestore = vm::replaceAll,
+                                    onSaveBuilding = vm::saveBuilding,
+                                    onDeleteBuilding = vm::deleteBuilding
+                                )
+                            }
                             Screen.AppearanceSettings -> AppearanceSettingsScreen(
                                 state = appearanceSettings,
                                 onBack = ::pop
@@ -128,6 +150,15 @@ fun RentApp(vm: MainViewModel = viewModel()) {
                             is Screen.Settings -> {
                                 val building = data.buildings.firstOrNull { it.id == screen.buildingId }
                                 if (building != null) SettingsScreen(building.settings, onBack = ::pop) {
+                                    val month = readingMonth.plusMonths(1).toString()
+                                    pendingReexport = data.bills.filter { bill ->
+                                        bill.buildingId == building.id && bill.month == month
+                                    }.mapNotNull { bill ->
+                                        val room = data.rooms.firstOrNull { room -> room.id == bill.roomId }
+                                        if (room != null && room.billingFees(building.settings) != room.billingFees(it)) {
+                                            bill.reprice(room, it)
+                                        } else null
+                                    }
                                     vm.saveBuildingSettings(building.id, it)
                                     pop()
                                 }
@@ -139,7 +170,17 @@ fun RentApp(vm: MainViewModel = viewModel()) {
                                     buildingId = building.id,
                                     settings = building.settings,
                                     onBack = ::pop,
-                                    onSave = { vm.saveRoom(it); pop() },
+                                    onSave = { updated ->
+                                        val previous = data.rooms.firstOrNull { it.id == updated.id }
+                                        if (previous != null && previous.billingFees(building.settings) != updated.billingFees(building.settings)) {
+                                            pendingReexport = data.bills.filter {
+                                                it.buildingId == building.id && it.roomId == updated.id &&
+                                                    it.month == readingMonth.plusMonths(1).toString()
+                                            }.map { it.reprice(updated, building.settings, previous) }
+                                        }
+                                        vm.saveRoom(updated)
+                                        pop()
+                                    },
                                     onDelete = { vm.deleteRoom(it); pop() }
                                 )
                             }
@@ -217,6 +258,54 @@ fun RentApp(vm: MainViewModel = viewModel()) {
                         renderScreen(screen)
                     }
                 }
+                // Capture this dialog's payload: its content can still render during dismissal.
+                val reexportBills = pendingReexport
+                if (reexportBills.isNotEmpty()) KitAlertDialog(
+                    onDismissRequest = { pendingReexport = emptyList() },
+                    title = "重新导出房租单？",
+                    text = { Text("费用已保存。是否按新费用重新计算并导出 ${reexportBills.first().month} 的 ${reexportBills.size} 张房租单？暂不导出将保留原账单。") },
+                    confirmButton = {
+                        TextButton(text = "重新导出", onClick = {
+                            val bills = reexportBills
+                            pendingReexport = emptyList()
+                            exporting = true
+                            scope.launch {
+                                var count = 0
+                                try {
+                                    vm.saveRepricedBills(bills)
+                                    repricingRevision++
+                                    bills.forEach { bill ->
+                                        val name = vm.data.value.buildings.firstOrNull { it.id == bill.buildingId }?.name ?: "楼栋"
+                                        withContext(Dispatchers.IO) {
+                                            ReceiptExporter.export(context, bill, name, ReceiptTemplate())
+                                        }
+                                        count++
+                                    }
+                                    Toast.makeText(context, "已重新导出 $count 张房租单", Toast.LENGTH_LONG).show()
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (error: Exception) {
+                                    exportMessage = "账单已更新，已导出 $count 张；导出失败：${error.message}。可在录入页重试导出。"
+                                } finally {
+                                    exporting = false
+                                }
+                            }
+                        })
+                    },
+                    dismissButton = { TextButton(text = "暂不导出", onClick = { pendingReexport = emptyList() }) }
+                )
+                if (exporting) KitAlertDialog(
+                    onDismissRequest = {},
+                    title = "正在重新导出",
+                    text = { Text("正在保存房租单到相册，请稍候…") },
+                    confirmButton = {}
+                )
+                exportMessage?.let { message -> KitAlertDialog(
+                    onDismissRequest = { exportMessage = null },
+                    title = "导出结果",
+                    text = { Text(message) },
+                    confirmButton = { TextButton(text = "知道了", onClick = { exportMessage = null }) }
+                ) }
             }
         }
     }

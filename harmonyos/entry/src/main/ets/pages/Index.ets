@@ -9,22 +9,21 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { SettingsPage } from '../ui/SettingsPage';
 import { AboutPage } from '../ui/AboutPage';
 import { ArchivePage } from '../ui/ArchivePage';
-import { TemplatePage } from '../ui/TemplatePage';
 import { common } from '@kit.AbilityKit';
 import { receiptPng, saveReceiptImages } from '../export/ReceiptService';
 import { ReceiptPage } from '../ui/ReceiptPage';
 import { BackupPage } from '../ui/BackupPage';
 import { util } from '@kit.ArkTS';
 import { AppData, Building, Room, Bill, compareRoomNumbers } from '../model/Models';
-import { monthTitle, currentMonth, monthSummary, MonthSummary, today, buildingMissingMonths } from '../model/UiLogic';
+import { monthTitle, currentMonth, monthSummary, MonthSummary, today, buildingMissingMonths, nextEmptyReading } from '../model/UiLogic';
 import { shiftMonth } from '../model/BillCalculator';
 import { StoreSession } from '../data/StoreSession';
 import { BuildingEditor, RoomEditor } from '../ui/Editors';
 import { EntryCard } from '../ui/EntryCard';
 import { RoomHistory, BillDetail, PageRoute } from '../ui/History';
 
-// Namespace access tolerates exports absent on HarmonyOS 5.1.
-const HdsTabs = hds.HdsTabs;
+// HarmonyOS 5.0 has no HDS module; never dereference it during legacy startup.
+const HdsTabs = supportsImmersiveNavigation() ? hds.HdsTabs : undefined!;
 
 class SearchFocusFrame extends FrameCallback {
   private focus: () => void;
@@ -64,6 +63,7 @@ struct Index {
   @State searchContentVisible: boolean = false;
   @State contentWidth: number = 360;
   @State message: string = '';
+  @State defaultPriceSummary: string = '';
   @State busy: boolean = false;
   @State exporting: boolean = false;
   @State cancelExport: boolean = false;
@@ -95,6 +95,9 @@ struct Index {
     if (!this.data.buildings.some((building: Building) => building.id === this.buildingId)) {
       this.buildingId = this.data.buildings[0]?.id ?? '';
     }
+    const selected = this.data.buildings.find((building: Building) => building.id === this.buildingId);
+    this.defaultPriceSummary = '水 ¥' + (selected?.settings.defaultWaterRate ?? '') +
+      ' / 吨  ·  电 ¥' + (selected?.settings.defaultElectricityRate ?? '') + ' / 度';
     StoreSession.entries?.prune(this.data);
   }
 
@@ -255,16 +258,17 @@ struct Index {
     finally { this.busy = false; }
   }
 
-  private async exportReceipts(): Promise<void> {
+  private async exportReceipts(repriced: Bill[] = []): Promise<void> {
     if (this.busy) { return; }
-    const buildingId = this.buildingId; const month = this.billMonth();
+    const buildingId = repriced.length > 0 ? repriced[0].buildingId : this.buildingId;
+    const month = repriced.length > 0 ? repriced[0].month : this.billMonth();
     this.busy = true; this.exporting = true; this.cancelExport = false; this.message = ''; this.exportStatus = '准备生成收据…';
     try {
       await StoreSession.store!.flush();
       const data = StoreSession.store!.snapshot().data;
       const building = data.buildings.find((b: Building) => b.id === buildingId);
       if (!building) { throw new Error('楼栋不存在'); }
-      const bills = data.bills.filter((b: Bill) => b.buildingId === buildingId && b.month === month);
+      const bills = repriced.length > 0 ? repriced : data.bills.filter((b: Bill) => b.buildingId === buildingId && b.month === month);
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       const result = await runReceiptBatch(bills,
         (bill: Bill) => receiptPng(context,bill,building,building.receiptTemplate ?? data.receiptTemplate),
@@ -274,6 +278,61 @@ struct Index {
       this.exportStatus = result.cancelled ? '已停止生成，未保存到相册' : building.name + ' ' + month + ' · 已保存 ' + result.saved + ' / ' + result.total + ' 张收据';
     } catch (e) { this.exportStatus = ''; this.message = '导出未完成：' + (e as Error).message; }
     finally { this.busy = false; this.exporting = false; }
+  }
+
+  private nextEmptyReading(roomId: string, field: number): void {
+    const rooms = this.data.rooms.filter((room: Room) => room.buildingId === this.buildingId)
+      .sort((a: Room, b: Room) => compareRoomNumbers(a.number, b.number));
+    const start = rooms.findIndex((room: Room) => room.id === roomId);
+    if (start < 0) { return; }
+    const drafts = rooms.map((room: Room) => StoreSession.entries!.state(room, this.billMonth()).draft);
+    const next = nextEmptyReading(drafts, start * 4 + field);
+    if (next >= 0) {
+      const target = rooms[Math.floor(next / 4)];
+      const inputId = target.id + ':reading:' + (next % 4);
+      if (this.rooms().some((room: Room) => room.id === target.id)) {
+        this.getUIContext().getFocusController().requestFocus(inputId);
+      } else {
+        const month = this.billMonth();
+        this.query = '';
+        this.getUIContext().postFrameCallback(new SearchFocusFrame(() => {
+          if (this.tab === 1 && !this.detailOpen && this.billMonth() === month && this.buildingId === target.buildingId) {
+            this.getUIContext().getFocusController().requestFocus(inputId);
+          }
+        }));
+      }
+      return;
+    }
+    this.getUIContext().getFocusController().clearFocus();
+  }
+
+  private feesSaved(previous: AppData): void {
+    this.reload();
+    try {
+      const bills = StoreSession.store!.repricingCandidates(previous, this.billMonth());
+      if (bills.length === 0) { return; }
+      this.getUIContext().showAlertDialog({
+        title: '重新导出房租单？',
+        message: '费用已保存。是否按新费用重新计算并导出 ' + bills[0].month + ' 的 ' + bills.length + ' 张房租单？暂不导出将保留原账单。',
+        primaryButton: { value: '暂不导出', action: () => {} },
+        secondaryButton: { value: '重新导出', action: () => { this.reexport(bills); } }
+      });
+    } catch (error) { this.message = '费用已保存，但准备重新导出失败：' + (error as Error).message; }
+  }
+
+  private async reexport(bills: Bill[]): Promise<void> {
+    if (this.busy) { return; }
+    this.busy = true;
+    try {
+      await StoreSession.store!.saveRepricedBills(bills);
+      StoreSession.entries!.refreshRepriced(bills);
+      this.reload(); this.entryRevision++;
+    } catch (error) {
+      this.message = '重新计算未保存：' + (error as Error).message;
+      this.busy = false; return;
+    }
+    this.busy = false;
+    await this.exportReceipts(bills);
   }
 
   @Builder
@@ -286,18 +345,16 @@ struct Index {
       AboutPage()
     } else if (name === 'archive') {
       ArchivePage({ buildingId: (param as PageRoute).buildingId })
-    } else if (name === 'template') {
-      TemplatePage({ buildingId: (param as PageRoute).buildingId, onSaved: () => this.reload() })
     } else if (name === 'receipt') {
       ReceiptPage({ billId: (param as PageRoute).id })
     } else if (name === 'backup') {
       BackupPage({ onSaved: () => { this.reload(); this.entryRevision++; } })
     } else if (name === 'building') {
       BuildingEditor({ original: this.data.buildings.find((building: Building) => building.id === (param as PageRoute).id),
-        paths: this.paths, onSaved: () => this.reload() })
+        paths: this.paths, onSaved: (previous: AppData) => this.feesSaved(previous) })
     } else if (name === 'room') {
       RoomEditor({ original: this.data.rooms.find((room: Room) => room.id === (param as PageRoute).id),
-        buildingId: (param as PageRoute).buildingId, paths: this.paths, onSaved: () => this.reload() })
+        buildingId: (param as PageRoute).buildingId, paths: this.paths, onSaved: (previous: AppData) => this.feesSaved(previous) })
     } else if (name === 'history') {
       RoomHistory({ roomId: (param as PageRoute).id, roomNumber: (param as PageRoute).title,
         buildingId: (param as PageRoute).buildingId, paths: this.paths })
@@ -317,7 +374,7 @@ struct Index {
   }
 
   @Builder
-  actionRow(icon: Resource, title: string, subtitle: string, action: () => void) {
+  actionRow(icon: Resource, title: string, subtitle: string, action: () => void, pricing: boolean = false) {
     Button() {
       Row({ space: 14 }) {
         SymbolGlyph(icon).fontSize(22 * this.uiScale).fontColor([$r('sys.color.ohos_id_color_emphasize')])
@@ -326,7 +383,7 @@ struct Index {
           Text(title).fontSize(16 * this.uiScale).fontWeight(FontWeight.Medium)
             .fontColor($r('sys.color.ohos_id_color_text_primary')).width('100%')
           if (subtitle) {
-            Text(subtitle).fontSize(12 * this.uiScale).fontColor($r('sys.color.ohos_id_color_text_secondary')).width('100%')
+            Text(pricing ? this.defaultPriceSummary : subtitle).fontSize(12 * this.uiScale).fontColor($r('sys.color.ohos_id_color_text_secondary')).width('100%')
           }
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(12).fontColor([$r('sys.color.ohos_id_color_text_secondary')])
@@ -343,10 +400,6 @@ struct Index {
         Column({ space: 24 }) {
           Column() {
             this.actionRow($r('sys.symbol.gearshape'), '外观设置', '配色、界面大小与动画', () => this.open('settings'))
-            if (this.buildingId) {
-              Divider().margin({ left: 62 }).width('80%').opacity(0.15)
-              this.actionRow($r('sys.symbol.doc_text'), '收据模板', '当前楼栋的收据样式', () => this.open('template'))
-            }
           }.width('100%').borderRadius(20).backgroundColor($r('app.color.surface'))
           Column() {
             this.actionRow($r('sys.symbol.info_circle'), '关于租簿', '版本、隐私与开源许可', () => this.open('about'))
@@ -365,6 +418,7 @@ struct Index {
           { statusBarContentColor: this.statusBarContentColor }).titleMode(HdsNavDestinationTitleMode.MINI).backgroundColor($r('app.color.page_background'))
     } else {
       NavDestination() { this.moreContent() }.title('更多设置').backgroundColor($r('app.color.page_background'))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 
@@ -393,8 +447,8 @@ struct Index {
     Column({ space: 16 }) {
       SymbolGlyph($r('sys.symbol.house')).fontSize(36).fontColor([$r('sys.color.ohos_id_color_text_secondary')])
       Text(this.query.trim() ? '没有匹配的房间' : '还没有房间').fontSize(18 * this.uiScale)
-      if (this.query.trim()) { Button('清除搜索').onClick(() => { this.query = ''; }) }
-      else { Button('新增房间').height(48 * this.uiScale).onClick(() => this.open('room')) }
+      if (this.query.trim()) { Button('清除搜索').type(ButtonType.Normal).borderRadius(16).onClick(() => { this.query = ''; }) }
+      else { Button('新增房间').type(ButtonType.Normal).borderRadius(16).height(48 * this.uiScale).onClick(() => this.open('room')) }
     }.width('100%').padding(24)
   }
 
@@ -495,7 +549,8 @@ struct Index {
         GridRow({ columns: this.roomColumns(), gutter: 16 }) {
           ForEach(this.rooms(), (room: Room) => {
             GridCol() {
-              EntryCard({ room: room, settings: this.building()!.settings, month: this.billMonth(), onSaved: () => this.reload() })
+              EntryCard({ room: room, settings: this.building()!.settings, month: this.billMonth(), onSaved: () => this.reload(),
+                onContinue: (roomId: string, field: number) => this.nextEmptyReading(roomId, field) })
                 .enabled(!this.busy)
             }
           }, (room: Room) => room.buildingId + ':' + room.id + ':' + this.billMonth() + ':' + JSON.stringify(room) + ':' + JSON.stringify(this.building()?.settings) + ':' + this.entryRevision)
@@ -517,8 +572,8 @@ struct Index {
             this.iconButton($r('sys.symbol.plus'), '新增楼栋', () => this.open('building'))
           }.padding({ left: 16, right: 8, top: 16, bottom: 8 }).width('100%')
           this.actionRow($r('sys.symbol.gearshape'), '楼栋与默认单价',
-            '水 ¥' + (this.building()?.settings.defaultWaterRate ?? '') + ' / 吨  ·  电 ¥' + (this.building()?.settings.defaultElectricityRate ?? '') + ' / 度',
-            () => this.open('building', this.buildingId))
+            this.defaultPriceSummary,
+            () => this.open('building', this.buildingId), true)
         }.width('100%').borderRadius(20).backgroundColor($r('app.color.surface'))
         Column() {
           this.actionRow($r('sys.symbol.doc_text'), '房东留档 PDF', '按月份导出账单汇总', () => this.open('archive'))
@@ -710,14 +765,14 @@ struct Index {
           if (!this.immersiveNavigation) { this.homeTitle() }
           if (this.exportStatus) { Text(this.exportStatus).fontSize(14 * this.uiScale).fontColor($r('sys.color.ohos_id_color_text_secondary')).padding(12) }
           if (this.exporting) {
-            Button(this.cancelExport ? '正在停止…' : '停止生成').height(48 * this.uiScale).enabled(!this.cancelExport).onClick(() => { this.cancelExport = true; })
+            Button(this.cancelExport ? '正在停止…' : '停止生成').type(ButtonType.Normal).borderRadius(16).height(48 * this.uiScale).enabled(!this.cancelExport).onClick(() => { this.cancelExport = true; })
           }
           if (this.message) { Text(this.message).fontSize(14 * this.uiScale).fontColor($r('app.color.danger')).padding(12) }
           if (this.data.buildings.length === 0) {
             Column({ space: 20 }) {
               Text('创建你的第一栋楼').fontSize(24 * this.uiScale)
               Text('设置水电单价，再添加房间开始记账。').fontSize(16 * this.uiScale)
-              Button('新增楼栋').height(48 * this.uiScale).onClick(() => this.open('building'))
+              Button('新增楼栋').type(ButtonType.Normal).borderRadius(16).height(48 * this.uiScale).onClick(() => this.open('building'))
               Button('备份与恢复').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16).height(48 * this.uiScale).onClick(() => this.open('backup'))
             }.layoutWeight(1).justifyContent(FlexAlign.Center).width('100%').padding(24)
           } else {

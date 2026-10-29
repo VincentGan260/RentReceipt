@@ -7,6 +7,11 @@ struct RootView: View {
     @State private var selection = MainTab.overview
     @State private var searchSource = MainTab.overview
     @State private var query = ""
+    @State private var reexportItems: [URL] = []
+    @State private var showingReexportShare = false
+    @State private var reexportMessage: String?
+    @State private var reexporting = false
+    @State private var showingReexportConfirmation = false
 
     var body: some View {
         Group {
@@ -20,6 +25,23 @@ struct RootView: View {
                 }
             }
         }
+        .overlay { if reexporting { ProgressView("正在重新导出…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) } }
+        .sheet(isPresented: $showingReexportShare) { ShareSheet(items: reexportItems) }
+        .task(id: store.pendingReexport.map(\.id)) {
+            guard !store.pendingReexport.isEmpty else { return }
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            showingReexportConfirmation = true
+        }
+        .alert("重新导出房租单？", isPresented: $showingReexportConfirmation, presenting: store.pendingReexport) { bills in
+            Button("重新导出") { reexport(bills) }
+            Button("暂不导出", role: .cancel) { store.pendingReexport = [] }
+        } message: { bills in
+            Text("费用已保存。是否按新费用重新计算并导出 \(bills.first?.month ?? "") 的 \(bills.count) 张房租单？暂不导出将保留原账单。")
+        }
+        .alert("导出结果", isPresented: Binding(get: { reexportMessage != nil }, set: { if !$0 { reexportMessage = nil } })) {
+            Button("知道了") { reexportMessage = nil }
+        } message: { Text(reexportMessage ?? "") }
         .onChange(of: selection) { value in
             if value != .search { searchSource = value; query = "" }
         }
@@ -31,6 +53,25 @@ struct RootView: View {
             Button("好", role: .cancel) { store.dismissPersistenceError() }
         } message: {
             Text(store.lastPersistenceError ?? "请稍后重试。")
+        }
+    }
+
+    private func reexport(_ bills: [Bill]) {
+        store.pendingReexport = []
+        store.saveRepricedBills(bills)
+        guard store.lastPersistenceError == nil else { return }
+        let buildings = store.data.buildings
+        reexporting = true
+        Task {
+            do {
+                reexportItems = try await Task.detached(priority: .userInitiated) {
+                    try bills.map { bill in
+                        try ReceiptRenderer.writeTemporaryPNG(for: bill, buildingName: buildings.first(where: { $0.id == bill.buildingId })?.name ?? "楼栋")
+                    }
+                }.value
+                showingReexportShare = true
+            } catch { reexportMessage = "账单已更新，导出失败：\(error.localizedDescription)。可在录入页重试导出。" }
+            reexporting = false
         }
     }
 
@@ -72,7 +113,7 @@ struct RootView: View {
     @ViewBuilder
     private var searchContent: some View {
         switch searchSource {
-        case .entry: EntryView(search: query)
+        case .entry: EntryView(search: query, onClearSearch: { query = "" })
         case .rooms: RoomsView(search: query)
         default: OverviewView(search: query)
         }

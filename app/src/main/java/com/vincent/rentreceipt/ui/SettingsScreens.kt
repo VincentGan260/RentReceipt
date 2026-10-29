@@ -59,8 +59,8 @@ fun SettingsScreen(settings: PricingSettings, onBack: () -> Unit, onSave: (Prici
     var error by remember { mutableStateOf<String?>(null) }
     ExpressivePage("收费设置", navigation = { BackButton(onBack) }) {
         item {
-            SectionTitle("默认单价")
             ExpressiveCard {
+                Text("默认单价", color = KitColors.onSurface, style = KitTypography.titleLarge)
                 Text("房间没有单独设置时使用这里的价格。", color = KitColors.onSurfaceVariant)
                 NumberField("水费（元/吨）", water) { water = it }
                 NumberField("电费（元/度）", electricity) { electricity = it }
@@ -68,9 +68,9 @@ fun SettingsScreen(settings: PricingSettings, onBack: () -> Unit, onSave: (Prici
             }
         }
         item {
-            SectionTitle("表具归零上限")
             ExpressiveCard {
-                Text("读数从上限归零时用于计算实际用量；留空表示不自动处理。")
+                Text("表具归零上限", color = KitColors.onSurface, style = KitTypography.titleLarge)
+                Text("读数从上限归零时用于计算实际用量；留空表示不自动处理。", color = KitColors.onSurfaceVariant)
                 NumberField("水表上限（可留空）", waterMeterMax) { waterMeterMax = it }
                 NumberField("电表上限（例如10000）", electricityMeterMax) { electricityMeterMax = it }
             }

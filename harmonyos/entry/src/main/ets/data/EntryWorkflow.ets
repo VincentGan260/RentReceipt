@@ -31,6 +31,13 @@ export class EntryWorkflow {
     return entry;
   }
 
+  refreshRepriced(bills: Bill[]): void {
+    bills.forEach((bill: Bill) => {
+      const entry = this.entries.find((value: EntryState) => value.buildingId === bill.buildingId && value.roomId === bill.roomId && value.month === bill.month);
+      if (entry) { entry.draft.customCharges = bill.customCharges; }
+    });
+  }
+
   prune(data: AppData): void {
     this.entries = this.entries.filter((entry: EntryState) => data.rooms.some((room: Room) =>
       room.id === entry.roomId && room.buildingId === entry.buildingId));

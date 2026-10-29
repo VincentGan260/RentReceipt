@@ -2,8 +2,9 @@ import SwiftUI
 
 struct EntryView: View {
     var search: String = ""
+    var onClearSearch: () -> Void = {}
     @EnvironmentObject private var store: AppStore
-    @State private var readingMonth = MonthValue.current
+    private var readingMonth: MonthValue { store.readingMonth }
     @State private var mergedRentMonths: [MonthValue] = []
     @State private var missingRentMonths: [MonthValue] = []
     @State private var showingMissingMonthAlert = false
@@ -11,6 +12,9 @@ struct EntryView: View {
     @State private var exportItems: [URL] = []
     @State private var showingShare = false
     @State private var exporting = false
+    @FocusState private var focusedReading: String?
+    @State private var pendingFocus: String?
+    @State private var visibleEntryIDs: Set<String> = []
 
     private var visibleRooms: [Room] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -20,6 +24,7 @@ struct EntryView: View {
     var body: some View {
         ZStack {
             AppBackground()
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 14) {
                     AppCard {
@@ -56,7 +61,8 @@ struct EntryView: View {
                                 room: room,
                                 readingMonth: readingMonth,
                                 billMonth: readingMonth.next.id,
-                                mergedRentMonths: mergedRentMonths
+                                mergedRentMonths: mergedRentMonths,
+                                focusedReading: $focusedReading
                             ) { result in
                                 switch result {
                                 case .success(let bill):
@@ -65,7 +71,10 @@ struct EntryView: View {
                                 case .failure(let error): message = error.localizedDescription
                                 }
                             }
-                            .id("\(room.id)-\(readingMonth.id)-\(store.selectedBuildingID)")
+                            .id("\(room.id)-\(readingMonth.id)-\(store.selectedBuildingID)-\(store.repricingRevision)")
+                            .id(room.id)
+                            .onAppear { visibleEntryIDs.insert(room.id) }
+                            .onDisappear { visibleEntryIDs.remove(room.id) }
                         }
                     }
                 }
@@ -76,9 +85,29 @@ struct EntryView: View {
             }
             .softTitleScrollEdge()
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: pendingFocus) { target in
+                guard let target, let roomID = target.components(separatedBy: "|").first else { return }
+                if visibleEntryIDs.contains(roomID) { focusedReading = target; pendingFocus = nil }
+                else {
+                    proxy.scrollTo(roomID, anchor: .center)
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 150_000_000)
+                        guard pendingFocus == target else { return }
+                        focusedReading = target; pendingFocus = nil
+                    }
+                }
+            }
+            }
         }
         .navigationTitle("数据录入")
         .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                if focusedReading != nil {
+                    Button("继续") { focusNextEmptyReading() }
+                    Spacer()
+                    Button("完成") { pendingFocus = nil; focusedReading = nil }
+                }
+            }
             ToolbarItem(placement: .topBarLeading) { BuildingMenu() }
             ToolbarItem(placement: .topBarTrailing) {
                 if exporting {
@@ -96,11 +125,26 @@ struct EntryView: View {
             Text("检测到 \(missingRentMonths.map { "\($0.year)年\($0.month)月" }.joined(separator: "、")) 没有单独账单。是否将这些月份房租合并到本次？水电将按上次与本次实际抄表读数计算。")
         }
         .onAppear { selectReadingMonth(readingMonth) }
+        .onDisappear { pendingFocus = nil; focusedReading = nil }
         .onChange(of: store.selectedBuildingID) { _ in selectReadingMonth(readingMonth) }
     }
 
+    private func focusNextEmptyReading() {
+        let keys = ["previousWater", "currentWater", "previousElectricity", "currentElectricity"]
+        let rooms = store.rooms()
+        let fields = rooms.flatMap { room in keys.map { "\(room.id)|\($0)" } }
+        let start = focusedReading.flatMap { fields.firstIndex(of: $0) } ?? -1
+        let drafts = rooms.map { store.entryDraft(room: $0, month: readingMonth.next.id) }
+        if let next = BillCalculator.nextEmptyReading(drafts, after: start) {
+            if !visibleRooms.contains(where: { $0.id == rooms[next / 4].id }) { onClearSearch() }
+            pendingFocus = fields[next]
+        }
+        else { pendingFocus = nil; focusedReading = nil }
+    }
+
     private func selectReadingMonth(_ value: MonthValue) {
-        readingMonth = value
+        pendingFocus = nil; focusedReading = nil
+        store.readingMonth = value
         mergedRentMonths = []
         let targetBillMonth = value.next
         if store.bills(month: targetBillMonth.id).isEmpty {
@@ -143,19 +187,20 @@ private struct RoomEntryCard: View {
     let readingMonth: MonthValue
     let billMonth: String
     let mergedRentMonths: [MonthValue]
+    var focusedReading: FocusState<String?>.Binding
     let onResult: (Result<Bill, Error>) -> Void
 
     @State private var draft: BillDraft
     @State private var previewTotal: String?
     @State private var error: String?
-    @State private var saveTask: Task<Void, Never>?
 
-    init(room: Room, readingMonth: MonthValue, billMonth: String, mergedRentMonths: [MonthValue], onResult: @escaping (Result<Bill, Error>) -> Void) {
+    init(room: Room, readingMonth: MonthValue, billMonth: String, mergedRentMonths: [MonthValue], focusedReading: FocusState<String?>.Binding, onResult: @escaping (Result<Bill, Error>) -> Void) {
         self.room = room
         self.readingMonth = readingMonth
         self.billMonth = billMonth
         self.mergedRentMonths = mergedRentMonths
         self.onResult = onResult
+        self.focusedReading = focusedReading
         _draft = State(initialValue: .init(month: billMonth))
     }
 
@@ -176,15 +221,15 @@ private struct RoomEntryCard: View {
                         .font(.caption).foregroundStyle(AppPalette.blue)
                 }
                 AdaptiveStack {
-                    NumberInput("\(previousReadingMonth.month)月水表", text: binding(\.previousWater))
-                    NumberInput("\(readingMonth.month)月水表", text: binding(\.currentWater))
+                    NumberInput("\(previousReadingMonth.month)月水表", text: binding(\.previousWater), focus: focusedReading, fieldID: "\(room.id)|previousWater")
+                    NumberInput("\(readingMonth.month)月水表", text: binding(\.currentWater), focus: focusedReading, fieldID: "\(room.id)|currentWater")
                 }
                 AdaptiveStack {
-                    NumberInput("\(previousReadingMonth.month)月电表", text: binding(\.previousElectricity))
-                    NumberInput("\(readingMonth.month)月电表", text: binding(\.currentElectricity))
+                    NumberInput("\(previousReadingMonth.month)月电表", text: binding(\.previousElectricity), focus: focusedReading, fieldID: "\(room.id)|previousElectricity")
+                    NumberInput("\(readingMonth.month)月电表", text: binding(\.currentElectricity), focus: focusedReading, fieldID: "\(room.id)|currentElectricity")
                 }
                     DisclosureGroup("换表或表数归零") {
-                        AdaptiveStack { NumberInput("水表实际用量", text: optionalBinding(\.waterUsageOverride)); NumberInput("电表实际用量", text: optionalBinding(\.electricityUsageOverride)) }
+                        AdaptiveStack { LabeledTextInput("水表实际用量", text: optionalBinding(\.waterUsageOverride), keyboard: .decimalPad); LabeledTextInput("电表实际用量", text: optionalBinding(\.electricityUsageOverride), keyboard: .decimalPad) }
                             .padding(.top, 8)
                     }.font(.subheadline)
                 DisclosureGroup("其他收费（\(draft.customCharges.count)）") {
@@ -205,18 +250,7 @@ private struct RoomEntryCard: View {
             }
         }
         .onAppear {
-            if let saved = store.draft(roomID: room.id, month: billMonth) { draft = saved; draft.rentOnly = false }
-            else if let existing = store.data.bills.first(where: { $0.roomId == room.id && $0.month == billMonth }) {
-                draft = .init(month: billMonth, previousWater: existing.previousWater, currentWater: existing.currentWater,
-                              previousElectricity: existing.previousElectricity, currentElectricity: existing.currentElectricity,
-                              rentOnly: false, customCharges: existing.customCharges)
-            } else if let previous = store.data.bills.filter({ $0.roomId == room.id && $0.month < billMonth }).max(by: { $0.month < $1.month }) {
-                draft.previousWater = previous.currentWater
-                draft.previousElectricity = previous.currentElectricity
-            }
-            if store.draft(roomID: room.id, month: billMonth) == nil && !store.data.bills.contains(where: { $0.roomId == room.id && $0.month == billMonth }) {
-                draft.customCharges = room.recurringCharges
-            }
+            draft = store.entryDraft(room: room, month: billMonth)
             recalculate()
         }
         .onChange(of: mergedRentMonths) { _ in changed() }
@@ -248,14 +282,9 @@ private struct RoomEntryCard: View {
         let effectiveDraft = draft.withMergedRent(room.rent, months: mergedRentMonths)
         store.saveDraft(effectiveDraft, roomID: room.id)
         recalculate()
-        saveTask?.cancel()
-        let current = effectiveDraft
-        saveTask = Task {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
-            do { onResult(.success(try BillCalculator.makeBill(room: room, settings: store.selectedBuilding.settings, draft: current))) }
-            catch { if complete(current) { onResult(.failure(error)) } }
-        }
+        // Calculation is synchronous on the main actor, so cleared input cannot race an older result.
+        do { onResult(.success(try BillCalculator.makeBill(room: room, settings: store.selectedBuilding.settings, draft: effectiveDraft))) }
+        catch { if complete(effectiveDraft) { onResult(.failure(error)) } }
     }
 
     private func recalculate() {
@@ -280,9 +309,20 @@ private struct RoomEntryCard: View {
 private struct NumberInput: View {
     let title: String
     @Binding var text: String
-    init(_ title: String, text: Binding<String>) { self.title = title; _text = text }
+    var focus: FocusState<String?>.Binding
+    var fieldID: String
+    init(_ title: String, text: Binding<String>, focus: FocusState<String?>.Binding, fieldID: String) {
+        self.title = title; _text = text; self.focus = focus; self.fieldID = fieldID
+    }
     var body: some View {
-        LabeledTextInput(title, text: $text, keyboard: .decimalPad)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            TextField(title, text: $text)
+                .keyboardType(.decimalPad)
+                .textFieldStyle(.roundedBorder)
+                .focused(focus, equals: fieldID)
+                .accessibilityLabel(title)
+        }
     }
 }
 

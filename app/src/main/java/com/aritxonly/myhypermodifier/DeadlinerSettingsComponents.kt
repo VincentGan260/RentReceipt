@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -68,7 +69,8 @@ fun SettingItem(
             androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
         }
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(text = headlineText, style = MiuixTheme.textStyles.body1)
+            Text(text = headlineText, color = MiuixTheme.colorScheme.onSurface,
+                style = MiuixTheme.textStyles.body1.copy(fontWeight = FontWeight.Medium))
             if (supportingText.isNotBlank()) {
                 Text(
                     text = supportingText,
@@ -107,7 +109,8 @@ fun SettingsSwitchItem(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(text = label, style = MiuixTheme.textStyles.body1)
+            Text(text = label, color = MiuixTheme.colorScheme.onSurface,
+                style = MiuixTheme.textStyles.body1.copy(fontWeight = FontWeight.Medium))
             if (supportingText.isNotBlank()) {
                 Text(
                     text = supportingText,
@@ -143,7 +146,8 @@ fun SettingsCheckboxItem(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(text = label, style = MiuixTheme.textStyles.body1)
+            Text(text = label, color = MiuixTheme.colorScheme.onSurface,
+                style = MiuixTheme.textStyles.body1.copy(fontWeight = FontWeight.Medium))
             if (supportingText.isNotBlank()) {
                 Text(text = supportingText, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.footnote1)
             }
@@ -175,13 +179,14 @@ fun SettingsSliderItemWithLabel(
         ) {
             Text(
                 text = label,
-                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurface,
+                style = MiuixTheme.textStyles.body1.copy(fontWeight = FontWeight.Medium),
                 modifier = Modifier.weight(1f).padding(end = 12.dp),
             )
             Text(
                 text = valueText(value),
-                color = MiuixTheme.colorScheme.primary,
-                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MiuixTheme.textStyles.footnote1,
             )
         }
         DeadlinerSlider(

@@ -29,6 +29,10 @@ export function entryDraft(data: AppData, room: Room, month: string, saved?: Bil
   draft.currentWater = existing?.currentWater ?? '';
   draft.currentElectricity = existing?.currentElectricity ?? '';
   draft.rentOnly = false;
+  if (existing) {
+    draft.waterUsageOverride = historicalUsageOverride(existing.waterUsage, existing.currentWater, existing.previousWater);
+    draft.electricityUsageOverride = historicalUsageOverride(existing.electricityUsage, existing.currentElectricity, existing.previousElectricity);
+  }
   draft.customCharges = chargesForBill(room, undefined, existing);
   return draft;
 }
@@ -127,4 +131,16 @@ export function changeDepositStatus(room: Room, status: DepositStatus, day: stri
     if (status === DepositStatus.REFUNDED) { value.depositRefundedDate = day; }
   }
   return value;
+}
+
+export function nextEmptyReading(drafts: BillDraft[], after: number): number {
+  const values = drafts.flatMap((draft: BillDraft) => [draft.previousWater, draft.currentWater, draft.previousElectricity, draft.currentElectricity]);
+  return values.findIndex((value: string, index: number) => index > after && value.trim() === '');
+}
+
+// Retain imported meter corrections, while ordinary readings continue to calculate freely.
+export function historicalUsageOverride(usage: string, current: string, previous: string): string | undefined {
+  if (!usage.trim()) { return undefined; }
+  const difference = Decimal.parse(current).subtract(Decimal.parse(previous)).whole();
+  return Decimal.parse(usage).compare(difference) === 0 ? undefined : usage;
 }

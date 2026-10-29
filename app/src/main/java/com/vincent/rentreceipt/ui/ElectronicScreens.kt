@@ -74,10 +74,10 @@ import com.vincent.rentreceipt.model.withMergedRent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.YearMonth
 import java.util.UUID
@@ -110,6 +110,8 @@ fun ElectronicHome(
     onSelectBuilding: (String) -> Unit,
     selectedTab: MainTab,
     onTab: (MainTab) -> Unit,
+    readingMonth: YearMonth,
+    onReadingMonthChange: (YearMonth) -> Unit,
     onSaveBill: (com.vincent.rentreceipt.model.Bill) -> Unit,
     onMarkMonthPaid: (String, String, String) -> Unit,
     onSaveBills: (List<com.vincent.rentreceipt.model.Bill>) -> Unit,
@@ -154,7 +156,7 @@ fun ElectronicHome(
                     )
                     MainTab.ENTRY -> ElectronicEntryScreen(
                         data, selectedBuildingId, onSelectBuilding, onSaveBills,
-                        onLoadBillDraft, onSaveBillDraft, onPreview
+                        onLoadBillDraft, onSaveBillDraft, onPreview, readingMonth, onReadingMonthChange
                     )
                     MainTab.ROOMS -> RoomManagementScreen(
                         data, selectedBuildingId, onSelectBuilding, onEditSettings,
@@ -174,13 +176,14 @@ private fun ElectronicEntryScreen(
     onSaveBills: (List<com.vincent.rentreceipt.model.Bill>) -> Unit,
     onLoadBillDraft: (String, String, String) -> BillDraft?,
     onSaveBillDraft: (String, String, BillDraft) -> Unit,
-    onPreview: (String) -> Unit
+    onPreview: (String) -> Unit,
+    readingMonth: YearMonth,
+    onReadingMonthChange: (YearMonth) -> Unit
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val entryListState = rememberLazyListState()
-    var readingMonth by remember { mutableStateOf(YearMonth.now()) }
     var pendingMonth by remember { mutableStateOf(readingMonth) }
     var showMonthDialog by remember { mutableStateOf(false) }
     var showMissingMonthDialog by remember { mutableStateOf(false) }
@@ -247,16 +250,31 @@ private fun ElectronicEntryScreen(
             focusManager.clearFocus()
             return
         }
-        val targetIsVisible = visibleRooms.any { it.id == target.roomId }
-        val targetRoomIndex = if (targetIsVisible) {
+        val targetMatchesSearch = visibleRooms.any { it.id == target.roomId }
+        val roomCountBefore = visibleRooms.size
+        val itemCountBefore = entryListState.layoutInfo.totalItemsCount
+        val targetRoomIndex = if (targetMatchesSearch) {
             visibleRooms.indexOfFirst { it.id == target.roomId }
         } else {
             query = ""
             rooms.indexOfFirst { it.id == target.roomId }
         }
         scope.launch {
-            entryListState.scrollToItem(5 + targetRoomIndex)
-            withFrameNanos { }
+            // A composed room already has attached focus requesters. Let the field's
+            // bringIntoView handle it instead of jumping the entire card to the top.
+            val targetKey = "entry-${target.roomId}"
+            if (!targetMatchesSearch) {
+                val expectedCount = itemCountBefore - roomCountBefore - 1 + rooms.size
+                snapshotFlow { entryListState.layoutInfo.totalItemsCount }
+                    .first { it == expectedCount }
+            }
+            val layout = entryListState.layoutInfo
+            if (layout.visibleItemsInfo.none { it.key == targetKey }) {
+                val displayedRoomCount = if (targetMatchesSearch) roomCountBefore else rooms.size
+                val roomStartIndex = layout.totalItemsCount - displayedRoomCount
+                entryListState.scrollToItem(roomStartIndex + targetRoomIndex)
+                withFrameNanos { }
+            }
             focusRequesters.getValue(target).requestFocus()
         }
     }
@@ -277,7 +295,7 @@ private fun ElectronicEntryScreen(
         } else {
             missingBillMonths(previousBillMonth, targetBillMonth.toString())
         }
-        readingMonth = targetReadingMonth
+        onReadingMonthChange(targetReadingMonth)
         mergedRentMonths = emptyList()
         missingRentMonths = missing
         message = null
@@ -288,7 +306,6 @@ private fun ElectronicEntryScreen(
     }
     val saveJobs = remember(billMonth, building.id) { mutableMapOf<String, Job>() }
     val saveTokens = remember(billMonth, building.id) { mutableStateMapOf<String, Long>() }
-    val billSaveMutex = remember(billMonth, building.id) { Mutex() }
     var saveSequence by remember(billMonth, building.id) { mutableStateOf(0L) }
     DisposableEffect(billMonth, building.id) {
         onDispose { saveJobs.values.forEach { it.cancel() } }
@@ -313,9 +330,9 @@ private fun ElectronicEntryScreen(
                         runCatching { createBill(room, building.settings, draft) }
                     }
                     result.onSuccess { bill ->
-                        withContext(Dispatchers.IO) {
-                            billSaveMutex.withLock { onSaveBills(listOf(bill)) }
-                        }
+                        // Commit on the UI thread so an older save cannot race with clearing input.
+                        if (saveTokens[room.id] != token) return@launch
+                        onSaveBills(listOf(bill))
                         message = "已自动保存 ${room.number} 房"
                     }.onFailure {
                         message = "草稿已保存；${it.message.orEmpty()}"
@@ -732,6 +749,7 @@ private fun IntegerField(
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    var focusRevealJob by remember { mutableStateOf<Job?>(null) }
     KitTextField(
         value = value,
         onValueChange = { input -> onValue(input.filter(Char::isDigit)) },
@@ -740,10 +758,11 @@ private fun IntegerField(
         modifier = modifier
             .bringIntoViewRequester(bringIntoViewRequester)
             .onFocusChanged { state ->
-                if (state.isFocused) scope.launch {
+                focusRevealJob?.cancel()
+                focusRevealJob = if (state.isFocused) scope.launch {
                     delay(250)
                     bringIntoViewRequester.bringIntoView()
-                }
+                } else null
             }
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier

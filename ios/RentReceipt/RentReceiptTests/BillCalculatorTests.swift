@@ -164,3 +164,112 @@ final class BillCalculatorTests: XCTestCase {
         XCTAssertEqual(oldRoom.number, room.number)
     }
 }
+
+extension BillCalculatorTests {
+    func testContinueSkipsCompletedReadingsAcrossRooms() {
+        let first = BillDraft(month: "2026-08", previousWater: "1", currentWater: "2", previousElectricity: "3")
+        let second = BillDraft(month: "2026-08", previousWater: "4", currentWater: " ", previousElectricity: "5", currentElectricity: "6")
+        XCTAssertEqual(BillCalculator.nextEmptyReading([first, second], after: 0), 3)
+        XCTAssertEqual(BillCalculator.nextEmptyReading([first, second], after: 3), 5)
+        XCTAssertNil(BillCalculator.nextEmptyReading([first, second], after: 5))
+    }
+
+    func testRepricingPreservesActualUsageIdentityPaymentAndManualCharges() throws {
+        let room = Room(number: "101", rent: "650", recurringCharges: [.init(name: "网费", amount: "30")])
+        let draft = BillDraft(month: "2026-08", previousWater: "100", currentWater: "102",
+            previousElectricity: "1000", currentElectricity: "1100", waterUsageOverride: "8",
+            customCharges: room.recurringCharges + [.init(name: "临时收费", amount: "20"), .init(name: "补收房租", amount: "650")])
+        var bill = try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: draft)
+        bill.paid = true; bill.paidDate = "2026-08-03"; bill.createdDate = "2026-08-02"
+        var updated = room; updated.rent = "700"; updated.recurringCharges = [.init(name: "网费", amount: "40")]
+        let result = try bill.repriced(room: updated, settings: PricingSettings(), previousRoom: room)
+        XCTAssertEqual(result.waterUsage, "8"); XCTAssertEqual(result.id, bill.id)
+        XCTAssertEqual(result.createdDate, bill.createdDate); XCTAssertEqual(result.paidDate, bill.paidDate); XCTAssertTrue(result.paid)
+        XCTAssertEqual(result.customCharges.map(\.name), ["临时收费", "补收房租", "网费"])
+        XCTAssertEqual(result.customCharges.map(\.amount), ["20", "650", "40"])
+    }
+
+    @MainActor
+    func testClearingEntryRemovesOnlyMatchingBillAcrossReload() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("data.json"), store = AppStore(fileURL: folder.appendingPathComponent("data.json"))
+        let room = Room(number: "101", rent: "650")
+        store.upsert(room)
+        var draft = BillDraft(month: "2026-08", previousWater: "100", currentWater: "102", previousElectricity: "1000", currentElectricity: "1100")
+        store.upsert(try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: draft))
+        draft.month = "2026-07"
+        store.upsert(try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: draft))
+        draft.month = "2026-08"; draft.currentWater = ""
+        store.saveDraft(draft, roomID: room.id); store.flush()
+        let reopened = AppStore(fileURL: url)
+        XCTAssertEqual(reopened.data.bills.map(\.month), ["2026-07"])
+        XCTAssertEqual(reopened.draft(roomID: room.id, month: "2026-08")?.currentWater, "")
+    }
+
+    @MainActor
+    func testFeeConfirmationDoesNotChangeBillUntilAccepted() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = AppStore(fileURL: folder.appendingPathComponent("data.json"))
+        let room = Room(number: "101", rent: "650", customWaterRate: "7")
+        store.upsert(room); store.readingMonth = MonthValue.parse("2026-07")!
+        let draft = BillDraft(month: "2026-08", previousWater: "100", currentWater: "102", previousElectricity: "1000", currentElectricity: "1100")
+        let bill = try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: draft)
+        store.saveDraft(draft, roomID: room.id); store.upsert(bill)
+        var previous = store.data, settings = store.selectedBuilding.settings
+        settings.defaultWaterRate = "9"; store.updateSettings(settings); store.prepareReexport(previous: previous)
+        XCTAssertTrue(store.pendingReexport.isEmpty)
+        previous = store.data; settings.defaultElectricityRate = "2"
+        store.updateSettings(settings); store.prepareReexport(previous: previous)
+        XCTAssertEqual(store.pendingReexport.count, 1)
+        XCTAssertEqual(store.data.bills.first?.electricityAmount, "130")
+        store.pendingReexport = [] // 暂不导出
+        XCTAssertEqual(store.data.bills.first?.electricityAmount, "130")
+        store.prepareReexport(previous: previous)
+        store.saveRepricedBills(store.pendingReexport)
+        XCTAssertEqual(store.data.bills.first?.electricityAmount, "200")
+        XCTAssertEqual(store.data.bills.first?.id, bill.id)
+        store.flush()
+    }
+
+    @MainActor
+    func testRepricingReportsDraftWriteFailureEvenWhenBillSaveSucceeds() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = AppStore(fileURL: folder.appendingPathComponent("data.json"))
+        let room = Room(number: "101", rent: "650")
+        store.upsert(room)
+        let draft = BillDraft(month: "2026-08", previousWater: "100", currentWater: "102", previousElectricity: "1000", currentElectricity: "1100")
+        let bill = try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: draft)
+        store.upsert(bill); store.saveDraft(draft, roomID: room.id); store.flush()
+        let draftURL = folder.appendingPathComponent("drafts.json")
+        try FileManager.default.removeItem(at: draftURL)
+        try FileManager.default.createDirectory(at: draftURL, withIntermediateDirectories: false)
+        store.saveRepricedBills([bill])
+        XCTAssertNotNil(store.lastPersistenceError)
+        XCTAssertTrue(store.lastPersistenceError?.contains("草稿保存失败") == true)
+    }
+
+
+    @MainActor
+    func testImportedMeterCorrectionsSeedEntryWithoutFreezingOrdinaryReadings() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = AppStore(fileURL: folder.appendingPathComponent("data.json"))
+        let room = Room(number: "101", rent: "1000")
+        store.upsert(room)
+        var draft = BillDraft(month: "2026-11", previousWater: "110", currentWater: "120", previousElectricity: "1100", currentElectricity: "1200", waterUsageOverride: "8", electricityUsageOverride: "50")
+        store.upsert(try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: draft))
+        let corrected = store.entryDraft(room: room, month: draft.month)
+        XCTAssertEqual(corrected.waterUsageOverride, "8"); XCTAssertEqual(corrected.electricityUsageOverride, "50")
+        draft.month = "2026-12"; draft.waterUsageOverride = nil; draft.electricityUsageOverride = nil
+        store.upsert(try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: draft))
+        var ordinary = store.entryDraft(room: room, month: draft.month)
+        XCTAssertNil(ordinary.waterUsageOverride)
+        ordinary.currentWater = "125"
+        XCTAssertEqual(try BillCalculator.makeBill(room: room, settings: PricingSettings(), draft: ordinary).waterUsage, "15")
+        store.flush()
+    }
+
+}

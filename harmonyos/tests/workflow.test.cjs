@@ -165,3 +165,96 @@ test('confirmed building merge updates every room, keeps manual charges and isol
   assert.equal(state.drafts.some(entry => entry.buildingId === 'other'), false);
   assert.equal(state.data.bills.length, 1); // Incomplete second room remains a draft.
 });
+
+test('clearing a saved entry removes only its matching bill and cannot resurrect queued results', async () => {
+  const store = await RentStore.open(new Storage()), r = room(), prices = new M.PricingSettings();
+  await store.saveRoom(r);
+  const workflow = new EntryWorkflow(store);
+  await workflow.update(r, prices, draft({ month: '2026-07' }), 'past');
+  const saving = workflow.update(r, prices, draft(), 'current');
+  const clearing = workflow.update(r, prices, draft({ currentWater: '' }), 'clear');
+  await Promise.all([saving, clearing]);
+  assert.deepEqual(store.snapshot().data.bills.map(b => b.id), ['past']);
+  assert.equal(store.draft(r.buildingId, r.id, '2026-08').currentWater, '');
+  await workflow.update(r, prices, draft(), 'new');
+  assert.equal(store.snapshot().data.bills.length, 2);
+});
+
+test('fee confirmation preserves original bills until commit, isolates months and respects independent rates', async () => {
+  const store = await RentStore.open(new Storage()), r = room({ customWaterRate: '7' });
+  await store.saveRoom(r);
+  const prices = new M.PricingSettings(), workflow = new EntryWorkflow(store);
+  await workflow.update(r, prices, draft(), 'current');
+  await workflow.update(r, prices, draft({ month: '2026-07' }), 'past');
+  const previous = store.snapshot().data, building = previous.buildings[0];
+  building.settings.defaultWaterRate = '9';
+  // Re-read because snapshot objects are intentionally independent.
+  const before = store.snapshot().data;
+  await store.saveBuilding(building);
+  assert.equal(store.repricingCandidates(before, '2026-08').length, 0);
+  const old = store.snapshot().data;
+  building.settings.defaultElectricityRate = '2';
+  await store.saveBuilding(building);
+  const candidates = store.repricingCandidates(old, '2026-08');
+  assert.equal(candidates.length, 1);
+  assert.equal(store.snapshot().data.bills.find(b => b.id === 'current').electricityAmount, '130');
+  await store.saveRepricedBills(candidates);
+  assert.equal(store.snapshot().data.bills.find(b => b.id === 'current').electricityAmount, '200');
+  assert.equal(store.snapshot().data.bills.find(b => b.id === 'past').electricityAmount, '130');
+});
+
+test('repricing keeps meter overrides, payment and manual charges while replacing recurring charges', () => {
+  const r = room({ recurringCharges: [{ name: '网费', amount: '30' }] }), prices = new M.PricingSettings();
+  const b = C.createBill(r, prices, draft({ waterUsageOverride: '8', customCharges: [
+    { name: '网费', amount: '30' }, { name: '补收2026年7月', amount: '650' }, { name: '临时', amount: '20' }
+  ] }), 'bill');
+  b.paid = true; b.paidDate = '2026-08-03'; b.createdDate = '2026-08-02';
+  const updated = room({ rent: '700', recurringCharges: [{ name: '网费', amount: '40' }] });
+  const result = C.repriceBill(b, updated, prices, r);
+  assert.equal(result.waterUsage, '8'); assert.equal(result.id, b.id);
+  assert.equal(result.paid, true); assert.equal(result.paidDate, b.paidDate); assert.equal(result.createdDate, b.createdDate);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.customCharges)), [ { name: '补收2026年7月', amount: '650' }, { name: '临时', amount: '20' }, { name: '网费', amount: '40' } ]);
+});
+
+test('continue skips completed readings, crosses rooms, and stops after the final empty field', () => {
+  const drafts = [draft({ currentElectricity: '' }), draft({ previousWater: '', currentWater: ' ' }), draft()];
+  assert.equal(U.nextEmptyReading(drafts, 0), 3);
+  assert.equal(U.nextEmptyReading(drafts, 3), 4);
+  assert.equal(U.nextEmptyReading(drafts, 4), 5);
+  assert.equal(U.nextEmptyReading(drafts, 5), -1);
+});
+
+test('repriced bill and draft charges commit atomically and survive reopen', async () => {
+  const storage = new Storage(), store = await RentStore.open(storage), r = room();
+  await store.saveRoom(r);
+  const workflow = new EntryWorkflow(store), prices = new M.PricingSettings();
+  await workflow.update(r, prices, draft({ waterUsageOverride: '9' }), 'saved');
+  const previous = store.snapshot().data;
+  const updated = room({ recurringCharges: [{ name: '网费', amount: '40' }] });
+  await store.saveRoom(updated);
+  const bills = store.repricingCandidates(previous, '2026-08');
+  storage.fail = true;
+  await assert.rejects(store.saveRepricedBills(bills), /disk full/);
+  assert.equal(store.snapshot().data.bills[0].customCharges.length, 0);
+  assert.equal(store.draft(r.buildingId, r.id, '2026-08').customCharges.length, 0);
+  storage.fail = false;
+  await store.saveRepricedBills(bills); workflow.refreshRepriced(bills);
+  assert.equal(workflow.state(r, '2026-08').draft.customCharges[0].amount, '40');
+  const reopened = await RentStore.open(storage);
+  assert.equal(reopened.snapshot().data.bills[0].waterUsage, '9');
+  assert.equal(reopened.draft(r.buildingId, r.id, '2026-08').customCharges[0].amount, '40');
+});
+
+test('imported meter corrections survive entry seeding without freezing ordinary usage', () => {
+  const r = room(), settings = new M.PricingSettings(), data = M.initialData(); data.rooms = [r];
+  const b = C.createBill(r, settings, draft({ waterUsageOverride: '8', electricityUsageOverride: '50' }), 'imported');
+  data.bills = [b];
+  const seeded = U.entryDraft(data, r, b.month);
+  assert.equal(seeded.waterUsageOverride, '8'); assert.equal(seeded.electricityUsageOverride, '50');
+  assert.equal(C.createBill(r, settings, seeded, 'edited').total, b.total);
+  data.bills = [C.createBill(r, settings, draft(), 'ordinary')];
+  const ordinary = U.entryDraft(data, r, b.month);
+  assert.equal(ordinary.waterUsageOverride, undefined);
+  ordinary.currentWater = '105';
+  assert.equal(C.createBill(r, settings, ordinary, 'updated').waterUsage, '5');
+});

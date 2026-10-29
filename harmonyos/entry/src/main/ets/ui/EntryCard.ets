@@ -12,6 +12,7 @@ export struct EntryCard {
   @Prop settings: PricingSettings = new PricingSettings();
   month: string = '';
   onSaved: () => void = () => {};
+  onContinue: (roomId: string, field: number) => void = () => {};
   @State draft: BillDraft = new BillDraft();
   @State message: string = '';
   @State correctionExpanded: boolean = false;
@@ -33,6 +34,9 @@ export struct EntryCard {
   }
 
   private edit(field: number, value: string): void {
+    const values = [this.draft.previousWater, this.draft.currentWater, this.draft.previousElectricity,
+      this.draft.currentElectricity, this.draft.waterUsageOverride ?? '', this.draft.electricityUsageOverride ?? ''];
+    if (values[field] === value) { return; }
     const draft = cloneDraft(this.draft);
     switch (field) {
       case 0: draft.previousWater = value; break;
@@ -64,17 +68,17 @@ export struct EntryCard {
       Divider().opacity(0.12)
       Row({ space: 12 }) {
         if (!this.draft.rentOnly) {
-          FormField({ label: '上期水表', text: this.draft.previousWater, onEdit: (value: string) => this.edit(0, value) }).layoutWeight(1)
+          FormField({ label: '上期水表', text: this.draft.previousWater, onEdit: (value: string) => this.edit(0, value), inputId: this.room.id + ":reading:0", readingNext: true, onContinue: () => this.onContinue(this.room.id, 0) }).layoutWeight(1)
         }
         FormField({ label: this.draft.rentOnly ? '入住水表读数' : '本期水表', text: this.draft.currentWater,
-          onEdit: (value: string) => this.edit(1, value) }).layoutWeight(1)
+          onEdit: (value: string) => this.edit(1, value), inputId: this.room.id + ":reading:1", readingNext: true, onContinue: () => this.onContinue(this.room.id, 1) }).layoutWeight(1)
       }.width('100%')
       Row({ space: 12 }) {
         if (!this.draft.rentOnly) {
-          FormField({ label: '上期电表', text: this.draft.previousElectricity, onEdit: (value: string) => this.edit(2, value) }).layoutWeight(1)
+          FormField({ label: '上期电表', text: this.draft.previousElectricity, onEdit: (value: string) => this.edit(2, value), inputId: this.room.id + ":reading:2", readingNext: true, onContinue: () => this.onContinue(this.room.id, 2) }).layoutWeight(1)
         }
         FormField({ label: this.draft.rentOnly ? '入住电表读数' : '本期电表', text: this.draft.currentElectricity,
-          onEdit: (value: string) => this.edit(3, value) }).layoutWeight(1)
+          onEdit: (value: string) => this.edit(3, value), inputId: this.room.id + ":reading:3", readingNext: true, onContinue: () => this.onContinue(this.room.id, 3) }).layoutWeight(1)
       }.width('100%')
       if (!this.draft.rentOnly) {
         Button() {

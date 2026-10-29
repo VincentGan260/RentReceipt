@@ -93,7 +93,9 @@ struct RoomEditorView: View {
             if room.depositStatus == .collected { room.depositCollectedDate = today }
             if room.depositStatus == .refunded { room.depositRefundedDate = today }
         }
+        let previous = store.data
         store.upsert(room)
+        store.prepareReexport(previous: previous)
         dismiss()
     }
 
@@ -166,7 +168,8 @@ struct PricingSettingsView: View {
         guard canSave else {
             error = "请填写有效的单价，公共服务费不能为负数"; return
         }
-        store.updateSettings(settings); dismiss()
+        let previous = store.data
+        store.updateSettings(settings); store.prepareReexport(previous: previous); dismiss()
     }
     private var canSave: Bool {
         (editorDecimal(settings.defaultWaterRate) ?? -1) >= 0 &&

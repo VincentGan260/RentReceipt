@@ -65,6 +65,9 @@ fun ProgressiveTopBarMaterial(
         animationSpec = tween(280, easing = FastOutSlowInEasing),
         label = "progressive-top-bar-material",
     )
+    val supportsBlur = LocalAdvancedMaterialSpec.current.textureBlurEnabled &&
+        LocalAdvancedMaterialBackdrop.current != null &&
+        top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported()
     val density = LocalDensity.current
     val statusBarHeightPx = WindowInsets.statusBars.getTop(density)
     val minimumContentHeightPx = with(density) { MinimumContentHeightDp.dp.roundToPx() }
@@ -82,7 +85,9 @@ fun ProgressiveTopBarMaterial(
         val height = (foreground.maxOfOrNull { it.height } ?: constraints.minHeight)
             .coerceIn(constraints.minHeight, constraints.maxHeight)
         val occupied = max(height, statusBarHeightPx + minimumContentHeightPx)
-        val materialHeight = (ceil(occupied / ContentEndFraction).toInt() - trimPx).coerceAtLeast(occupied)
+        val materialHeight = if (supportsBlur) {
+            (ceil(occupied / ContentEndFraction).toInt() - trimPx).coerceAtLeast(occupied)
+        } else occupied
         val background = subcompose("background") {
             DeadlinerProgressiveTopBarBackground(materialProgress, Modifier.fillMaxSize())
         }.map { it.measure(Constraints.fixed(width, materialHeight)) }
@@ -95,11 +100,16 @@ fun ProgressiveTopBarMaterial(
 
 @Composable
 private fun DeadlinerProgressiveTopBarBackground(progress: Float, modifier: Modifier) {
-    if (progress <= 0f) return
     val backdrop = LocalAdvancedMaterialBackdrop.current
     val advanced = LocalAdvancedMaterialSpec.current
+    if (!advanced.textureBlurEnabled || backdrop == null ||
+        !top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported()) {
+        Box(modifier.background(MaterialTheme.colorScheme.background.copy(alpha = 1f)))
+        return
+    }
+    if (progress <= 0f) return
     Box(modifier.graphicsLayer(alpha = progress)) {
-        // Modified 2026-10-12: retain gradient material on devices without runtime shaders.
+        // The progressive gradient is reserved for shader-backed blur.
         if (advanced.enabled && backdrop != null && top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported()) {
             Box(Modifier.matchParentSize().progressiveTextureBlur(
                 backdrop = backdrop,

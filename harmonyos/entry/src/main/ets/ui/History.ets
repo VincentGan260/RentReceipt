@@ -77,6 +77,7 @@ export struct RoomHistory {
     } else {
       NavDestination() { this.pageContent() }.title(this.roomNumber + ' 房 · 历史账单').onShown(() => this.reload())
       .backgroundColor($r('app.color.page_background'))
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 }
@@ -142,8 +143,8 @@ export struct BillDetail {
               }, (charge: CustomCharge, index: number) => String(index) + JSON.stringify(charge))
             }.padding(20).borderRadius(24).backgroundColor($r('app.color.surface')).width('100%')
             if (this.message) { Text(this.message).fontSize(16 * this.uiScale).fontColor($r('app.color.danger')).width('100%') }
-            Button('预览房租单').width('100%').height(48 * this.uiScale).onClick(() => this.onReceipt(this.billId))
-            Button(this.bill.paid ? '改为未收' : '标记已收').width('100%').height(48 * this.uiScale).enabled(!this.busy)
+            Button('预览房租单').type(ButtonType.Normal).borderRadius(16).width('100%').height(48 * this.uiScale).onClick(() => this.onReceipt(this.billId))
+            Button(this.bill.paid ? '改为未收' : '标记已收').type(ButtonType.Normal).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy)
               .onClick(() => { this.togglePaid(); })
             if (this.canEdit) {
               Button('修改本月录入').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy)
@@ -164,6 +165,7 @@ export struct BillDetail {
     } else {
       NavDestination() { this.pageContent() }.title('账单详情').onBackPressed(() => this.busy).onShown(() => this.reload())
       .backgroundColor($r('app.color.page_background'))
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 }

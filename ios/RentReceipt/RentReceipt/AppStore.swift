@@ -7,6 +7,39 @@ final class AppStore: ObservableObject {
     @Published var selectedBuildingID: String
     @Published private(set) var lastPersistenceError: String?
 
+    @Published var readingMonth = MonthValue.current
+    @Published var pendingReexport: [Bill] = []
+    @Published var repricingRevision = 0
+
+    func prepareReexport(previous: AppData) {
+        do {
+            pendingReexport = try previous.bills.filter { $0.month == readingMonth.next.id }.compactMap { bill in
+                guard let oldRoom = previous.rooms.first(where: { $0.id == bill.roomId && $0.buildingId == bill.buildingId }),
+                      let room = data.rooms.first(where: { $0.id == bill.roomId && $0.buildingId == bill.buildingId }),
+                      let oldSettings = previous.buildings.first(where: { $0.id == bill.buildingId })?.settings,
+                      let settings = data.buildings.first(where: { $0.id == bill.buildingId })?.settings,
+                      oldRoom.billingFees(oldSettings) != room.billingFees(settings) else { return nil }
+                return try bill.repriced(room: room, settings: settings, previousRoom: oldRoom)
+            }
+        } catch { lastPersistenceError = "费用已保存，但准备重新导出失败：\(error.localizedDescription)" }
+    }
+
+    func saveRepricedBills(_ bills: [Bill]) {
+        for bill in bills {
+            let key = "\(bill.buildingId)|\(bill.roomId)|\(bill.month)"
+            if var draft = drafts[key] {
+                draft.customCharges = bill.customCharges
+                drafts[key] = draft
+            }
+            upsert(bill)
+        }
+        let draftsSaved = saveDrafts()
+        let draftError = draftsSaved ? nil : lastPersistenceError
+        flush()
+        if let draftError { lastPersistenceError = draftError }
+        repricingRevision += 1
+    }
+
     private let fileURL: URL
     private var drafts: [String: BillDraft] = [:]
     private var pendingSave: Task<Void, Never>?
@@ -95,10 +128,36 @@ final class AppStore: ObservableObject {
         persist()
     }
 
+    func entryDraft(room: Room, month: String) -> BillDraft {
+        if var saved = draft(roomID: room.id, month: month) { saved.rentOnly = false; return saved }
+        if let bill = data.bills.first(where: { $0.buildingId == room.buildingId && $0.roomId == room.id && $0.month == month }) {
+            return BillDraft(month: month, previousWater: bill.previousWater, currentWater: bill.currentWater,
+                previousElectricity: bill.previousElectricity, currentElectricity: bill.currentElectricity,
+                waterUsageOverride: historicalUsageOverride(bill.waterUsage, current: bill.currentWater, previous: bill.previousWater),
+                electricityUsageOverride: historicalUsageOverride(bill.electricityUsage, current: bill.currentElectricity, previous: bill.previousElectricity),
+                customCharges: bill.customCharges)
+        }
+        var value = BillDraft(month: month, customCharges: room.recurringCharges)
+        if let previous = data.bills.filter({ $0.buildingId == room.buildingId && $0.roomId == room.id && $0.month < month }).max(by: { $0.month < $1.month }) {
+            value.previousWater = previous.currentWater; value.previousElectricity = previous.currentElectricity
+        }
+        return value
+    }
+
+    private func historicalUsageOverride(_ usage: String, current: String, previous: String) -> String? {
+        guard !usage.isEmpty, let actual = try? BillCalculator.decimal(usage),
+              let currentValue = try? BillCalculator.decimal(current), let previousValue = try? BillCalculator.decimal(previous) else { return nil }
+        return actual == BillCalculator.rounded(currentValue - previousValue) ? nil : usage
+    }
+
     func draft(roomID: String, month: String) -> BillDraft? { drafts[draftKey(roomID, month)] }
     func saveDraft(_ draft: BillDraft, roomID: String) {
         drafts[draftKey(roomID, draft.month)] = draft
         saveDrafts()
+        if [draft.previousWater, draft.currentWater, draft.previousElectricity, draft.currentElectricity].contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            data.bills.removeAll { $0.buildingId == selectedBuildingID && $0.roomId == roomID && $0.month == draft.month }
+            persist()
+        }
     }
 
     func replaceAll(with replacement: AppData) {
@@ -145,12 +204,15 @@ final class AppStore: ObservableObject {
         guard let bytes = try? Data(contentsOf: draftURL) else { return }
         drafts = (try? JSONDecoder().decode([String: BillDraft].self, from: bytes)) ?? [:]
     }
-    private func saveDrafts() {
+    @discardableResult
+    private func saveDrafts() -> Bool {
         do {
             try FileManager.default.createDirectory(at: draftURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(drafts).write(to: draftURL, options: .atomic)
+            return true
         } catch {
             lastPersistenceError = "草稿保存失败：\(error.localizedDescription)"
+            return false
         }
     }
 }

@@ -8,6 +8,9 @@ export struct FormField {
   hint: string = '';
   decimal: boolean = true;
   onEdit: (value: string) => void = () => {};
+  inputId: string = '';
+  readingNext: boolean = false;
+  onContinue: () => void = () => {};
 
   build() {
     Column({ space: 8 }) {
@@ -16,6 +19,11 @@ export struct FormField {
         .type(this.decimal ? InputType.NUMBER_DECIMAL : InputType.Normal)
         .fontSize(16 * this.uiScale).height(48 * this.uiScale).onChange(this.onEdit)
         .accessibilityText(this.label)
+        .id(this.inputId || undefined)
+        .enterKeyType(this.readingNext ? EnterKeyType.Next : EnterKeyType.Done)
+        .onSubmit((key: EnterKeyType, event: SubmitEvent) => {
+          if (this.readingNext) { event.keepEditableState(); this.onContinue(); }
+        })
     }.alignItems(HorizontalAlign.Start).width('100%')
   }
 }

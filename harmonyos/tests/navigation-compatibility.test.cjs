@@ -34,3 +34,12 @@ test('startup modules do not statically link newer named exports or the material
     }
   }
 });
+
+test('legacy startup tolerates a completely missing HDS module', () => {
+  const initializer = source.match(/const HdsTabs = ([^;]+);/)[1];
+  const compiled = ts.transpileModule('return ' + initializer + ';', {}).outputText;
+  const resolve = new Function('supportsImmersiveNavigation', 'hds', compiled);
+  assert.equal(resolve(() => false, undefined), undefined);
+  const tabs = {};
+  assert.equal(resolve(() => true, { HdsTabs: tabs }), tabs);
+});

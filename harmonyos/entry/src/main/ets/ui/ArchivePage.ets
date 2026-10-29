@@ -32,7 +32,7 @@ export struct ArchivePage {
           Text('按当前楼栋导出房东留档 PDF。每页最多 15 个房间、3 个月，包含出租情况、租金、押金、各月水电用量和金额汇总。').width('100%')
           FormField({label:'开始月份（YYYY-MM）',text:this.start,decimal:false,onEdit:(v: string) => { this.start = v; }})
           FormField({label:'结束月份（YYYY-MM）',text:this.end,decimal:false,onEdit:(v: string) => { this.end = v; }})
-          Button('导出 PDF').width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.save())
+          Button('导出 PDF').type(ButtonType.Normal).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.save())
           if (this.busy) { LoadingProgress().width(36).height(36) }
           if (this.message) { Text(this.message).width('100%') }
         }.padding(24).width('100%')
@@ -47,6 +47,7 @@ export struct ArchivePage {
           { statusBarContentColor: this.statusBarContentColor }).titleMode(HdsNavDestinationTitleMode.MINI).onBackPressed(() => this.busy).backgroundColor($r('app.color.page_background'))
     } else {
       NavDestination() { this.pageContent() }.onBackPressed(() => this.busy).title('房东留档 PDF').backgroundColor($r('app.color.page_background'))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 }

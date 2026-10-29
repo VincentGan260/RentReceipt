@@ -27,6 +27,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun markMonthPaid(buildingId: String, month: String, paidDate: String) =
         repository.markMonthPaid(buildingId, month, paidDate)
     fun saveBills(bills: List<Bill>) = repository.saveBills(bills)
+    fun saveRepricedBills(bills: List<Bill>) = repository.saveRepricedBills(bills)
     fun loadBillDraft(buildingId: String, roomId: String, month: String) =
         repository.loadBillDraft(buildingId, roomId, month)
     fun saveBillDraft(buildingId: String, roomId: String, draft: BillDraft) =

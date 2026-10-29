@@ -41,9 +41,9 @@ export struct ReceiptPage {
         Column({space:16}) {
           if (this.path) {
             Image('file://'+this.path).width('100%').objectFit(ImageFit.Contain)
-            Button('保存高清图片').width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.action(false))
+            Button('保存高清图片').type(ButtonType.Normal).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.action(false))
             Button('分享图片').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.action(true))
-          } else if (!this.busy) { Button('重新生成').onClick(() => this.prepare()) }
+          } else if (!this.busy) { Button('重新生成').type(ButtonType.Normal).borderRadius(16).onClick(() => this.prepare()) }
           if (this.busy) { LoadingProgress().width(36).height(36) }
           if (this.message) { Text(this.message).width('100%') }
         }.padding(16).width('100%')
@@ -58,6 +58,7 @@ export struct ReceiptPage {
           { statusBarContentColor: this.statusBarContentColor }).titleMode(HdsNavDestinationTitleMode.MINI).backgroundColor($r('app.color.page_background'))
     } else {
       NavDestination() { this.pageContent() }.title('房租单预览').backgroundColor($r('app.color.page_background'))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 }

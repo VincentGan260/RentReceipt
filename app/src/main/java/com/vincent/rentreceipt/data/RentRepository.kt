@@ -124,6 +124,15 @@ class RentRepository(context: Context) {
         update(_data.value.copy(bills = bills.sortedByDescending { it.month }))
     }
 
+    fun saveRepricedBills(bills: List<Bill>) {
+        bills.forEach { bill ->
+            loadBillDraft(bill.buildingId, bill.roomId, bill.month)?.let { draft ->
+                saveBillDraft(bill.buildingId, bill.roomId, draft.copy(customCharges = bill.customCharges))
+            }
+        }
+        saveBills(bills)
+    }
+
     fun loadBillDraft(buildingId: String, roomId: String, month: String): BillDraft? = runCatching {
         val value = preferences.getString(draftKey(buildingId, roomId, month), null) ?: return null
         JSONObject(value).let { json ->
@@ -153,6 +162,15 @@ class RentRepository(context: Context) {
             put("customCharges", draft.customCharges.toJson())
         }
         preferences.edit().putString(draftKey(buildingId, roomId, draft.month), value.toString()).apply()
+        // An incomplete entry is only a draft; invalidate its previously generated bill immediately.
+        if (listOf(draft.previousWater, draft.currentWater,
+                draft.previousElectricity, draft.currentElectricity).any(String::isBlank)) {
+            val current = _data.value
+            val bills = current.bills.filterNot {
+                it.buildingId == buildingId && it.roomId == roomId && it.month == draft.month
+            }
+            if (bills.size != current.bills.size) update(current.copy(bills = bills))
+        }
     }
 
     fun replaceAll(data: AppData) {

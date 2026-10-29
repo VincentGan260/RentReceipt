@@ -58,6 +58,8 @@ fun SoftGlassSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val advancedMaterial = LocalAdvancedMaterialSpec.current
+    val supportsBlur = advancedMaterial.textureBlurEnabled && backdrop != null &&
+        top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported()
     val isDark = MaterialTheme.colorScheme.onSurface.luminance() > 0.5f
     val resolvedRecipe = recipe ?: DeadlinerGlassRecipes.floatingNavigation(
         advancedMaterial.fineTuning,
@@ -80,7 +82,7 @@ fun SoftGlassSurface(
             modifier = Modifier
                 .matchParentSize()
                 .graphicsLayer {
-                    alpha = materialAlpha.coerceIn(0f, 1f)
+                    alpha = if (supportsBlur) materialAlpha.coerceIn(0f, 1f) else 1f
                 }
                 .deadlinerGlassMaterial(
                     advancedMaterial = advancedMaterial,

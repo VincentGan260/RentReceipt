@@ -52,11 +52,11 @@ export struct BackupPage {
       Scroll(this.pageScroller) {
         Column({space:20}) {
           Text('备份包含全部楼栋、房间、收费设置、押金、历史账单及收据模板，可与 Android、iOS 版互换。未完成草稿和本机外观设置不包含在 ZIP 中。').fontSize(16 * this.uiScale).width('100%')
-          Button('导出 ZIP').width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.save())
+          Button('导出 ZIP').type(ButtonType.Normal).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.save())
           Button('选择备份文件').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.select())
           if (this.pending) {
             Text('待恢复：' + this.pending.buildings.length + ' 栋楼 · ' + this.pending.rooms.length + ' 个房间 · ' + this.pending.bills.length + ' 张账单').width('100%').fontSize(18 * this.uiScale)
-            Button('恢复此备份').width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.confirm())
+            Button('恢复此备份').type(ButtonType.Normal).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => this.confirm())
             Button('取消恢复').type(ButtonType.Normal).buttonStyle(ButtonStyleMode.NORMAL).borderRadius(16).width('100%').height(48 * this.uiScale).enabled(!this.busy).onClick(() => { this.pending = undefined; })
           }
           if (this.busy) { LoadingProgress().width(36).height(36) }
@@ -73,6 +73,7 @@ export struct BackupPage {
           { statusBarContentColor: this.statusBarContentColor }).titleMode(HdsNavDestinationTitleMode.MINI).onBackPressed(() => this.busy).backgroundColor($r('app.color.page_background'))
     } else {
       NavDestination() { this.pageContent() }.onBackPressed(() => this.busy).title('备份与恢复').backgroundColor($r('app.color.page_background'))
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
 }

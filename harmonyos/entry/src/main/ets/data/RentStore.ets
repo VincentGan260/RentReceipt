@@ -1,6 +1,6 @@
 import { AppData, Building, Room, Bill, BillDraft, PricingSettings, CustomCharge,
   ReceiptTemplate, ReceiptTextElement, initialData, compareRoomNumbers, DepositStatus } from '../model/Models';
-import { validateMonth } from '../model/BillCalculator';
+import { validateMonth, billingFees, repriceBill } from '../model/BillCalculator';
 import { Decimal } from '../model/Decimal';
 
 export interface SnapshotStorage {
@@ -129,6 +129,37 @@ export class RentStore {
 
   snapshot(): StoredState { return cloneState(this.state); }
 
+  async settledSnapshot(): Promise<StoredState> {
+    await this.pending;
+    return this.snapshot();
+  }
+
+  repricingCandidates(previous: AppData, month: string): Bill[] {
+    const data = this.snapshot().data;
+    return previous.bills.filter((bill: Bill) => bill.month === month).flatMap((bill: Bill): Bill[] => {
+      const oldRoom = previous.rooms.find((r: Room) => r.id === bill.roomId && r.buildingId === bill.buildingId);
+      const room = data.rooms.find((r: Room) => r.id === bill.roomId && r.buildingId === bill.buildingId);
+      const oldBuilding = previous.buildings.find((b: Building) => b.id === bill.buildingId);
+      const building = data.buildings.find((b: Building) => b.id === bill.buildingId);
+      if (!oldRoom || !room || !oldBuilding || !building ||
+        billingFees(oldRoom, oldBuilding.settings) === billingFees(room, building.settings)) { return []; }
+      return [repriceBill(bill, room, building.settings, oldRoom)];
+    });
+  }
+
+  saveRepricedBills(bills: Bill[]): Promise<void> {
+    const values = JSON.parse(JSON.stringify(bills)) as Bill[];
+    return this.commit((next: StoredState) => {
+      values.forEach((bill: Bill) => {
+        const index = next.data.bills.findIndex((b: Bill) => b.id === bill.id);
+        if (index < 0) { throw new Error('账单已不存在，请重新操作'); }
+        next.data.bills[index] = bill;
+        const draft = next.drafts.find((d: StoredDraft) => d.buildingId === bill.buildingId && d.roomId === bill.roomId && d.draft.month === bill.month);
+        if (draft) { draft.draft.customCharges = bill.customCharges; }
+      });
+    });
+  }
+
   private commit(change: (next: StoredState) => void): Promise<void> {
     const operation = this.pending.then(async () => {
       const next = cloneState(this.state);
@@ -232,6 +263,9 @@ export class RentStore {
       entry.buildingId = buildingId; entry.roomId = roomId; entry.draft = draft;
       const index = next.drafts.findIndex((d: StoredDraft) => d.buildingId === buildingId && d.roomId === roomId && d.draft.month === draft.month);
       if (index < 0) { next.drafts.push(entry); } else { next.drafts[index] = entry; }
+      if (!bill && [draft.previousWater, draft.currentWater, draft.previousElectricity, draft.currentElectricity].some((value: string) => value.trim() === '')) {
+        next.data.bills = next.data.bills.filter((b: Bill) => !(b.buildingId === buildingId && b.roomId === roomId && b.month === draft.month));
+      }
       if (bill) {
         if (bill.roomId !== roomId || bill.buildingId !== buildingId || bill.month !== draft.month) {
           throw new Error('账单与录入房间或月份不一致');
